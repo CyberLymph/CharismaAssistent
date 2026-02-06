@@ -1,0 +1,41 @@
+{% load static %}
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>{% block title %}Herzlich Wilkommen zu unserem CharismaAssistant!{% endblock %}</title>
+
+   <link rel="stylesheet" href="{% static 'chatui/base.css' %}?v=20251006-1"/>
+   <link rel="stylesheet" href="{% static 'chatui/styles.css' %}?v=20251006-5"/>
+   
+    <link rel="icon" href="{% static 'chatui/favicon.ico' %}"/>
+
+    {% block head_extra %}{% endblock %}
+  </head>
+  <body>
+    <main class="container">
+      <header class="app-header">
+        <div class="brand">
+          <div class="logo">EA</div>
+          <div>
+            <h1>ExamAssistant</h1>
+            <small class="muted">Charisma-Assistent mit LLM</small>
+          </div>
+        </div>
+        <nav class="topnav">
+          <a href="{% url 'chat' %}" class="{% block nav_chat %}{% endblock %}">Chat</a>
+
+        </nav>
+      </header>
+
+      {% block content %}{% endblock %}
+    </main>
+
+    <script>
+      function getCookie(name){const v=document.cookie.match('(?:^|; )'+name+'=([^;]*)');return v?decodeURIComponent(v[1]):null}
+      window.CSRF_TOKEN = getCookie('csrftoken');
+    </script>
+    {% block scripts %}{% endblock %}
+  </body>
+</html>

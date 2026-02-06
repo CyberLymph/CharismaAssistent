@@ -1,0 +1,24 @@
+.two-col {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.col-left, .col-right { min-width: 0; }
+.sticky { position: sticky; top: 16px; }
+
+.preview-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 12px;
+  min-height: 120px;
+}
+
+.preview-topic { margin-bottom: 12px; }
+.preview-topic h4 { margin: 6px 0 2px 0; }
+.preview-task { padding-left: 12px; margin: 4px 0; border-left: 3px solid var(--border); }
+.preview-task-title { font-weight: 600; margin-bottom: 2px; }
+.preview-task-text { white-space: pre-wrap; }
+
+

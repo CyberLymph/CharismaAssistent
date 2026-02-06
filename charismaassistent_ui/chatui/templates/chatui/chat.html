@@ -1,0 +1,35 @@
+{% extends "chatui/base.html" %}
+{% load static %}
+{% block title %}Chat · CharismaAssistent{% endblock %}
+{% block nav_chat %}active{% endblock %}
+
+{% block content %}
+<section class="card chat">
+  <header class="card__header">
+    <h2>Chat</h2>
+    <small class="muted">Text & optional PDF</small>
+  </header>
+
+  <div id="messages" class="chat__messages"></div>
+
+  <form id="form" class="chat__form">
+    <div class="row">
+      <label class="file">
+        <input id="file" type="file" accept="application/pdf"/>
+        <span>📎 PDF anhängen</span>
+      </label>
+      <span id="uploadStatus" class="muted"></span>
+    </div>
+
+    <div class="row">
+      <textarea id="input" placeholder="Frag mich etwas… (Shift+Enter = Zeilenumbruch)"></textarea>
+      <button id="send" type="submit">Senden</button>
+    </div>
+    {% csrf_token %}
+  </form>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="{% static 'chatui/chat.js' %}?v=20250920-3"></script>
+{% endblock %}

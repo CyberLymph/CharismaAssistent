@@ -1,0 +1,111 @@
+/* ====== Theme Variablen ====== */
+:root{
+  --bg:#0b0d12;
+  --surface:#121621;
+  --surface-2:#192033;
+  --text:#e7ecf6;
+  --muted:#9fb0d1;
+  --primary:#6aa7ff;
+  --okay:#33c38e;
+  --warn:#ffb347;
+  --danger:#ff6b6b;
+  --border: rgba(255,255,255,.08);
+  --shadow: 0 8px 24px rgba(0,0,0,.25);
+  --radius: 14px;
+}
+
+/* ====== Base / Layout ====== */
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font: 14px/1.45 system-ui,Segoe UI,Roboto,Inter,Arial,sans-serif;
+  color:var(--text);
+  background:radial-gradient(1200px 800px at 10% -20%, #15203a 0%, transparent 60%) , var(--bg);
+}
+
+.container{
+  width:min(1100px, 92vw);
+  margin:28px auto 60px;
+}
+
+/* ====== Header ====== */
+.app-header{
+  display:flex; align-items:center; justify-content:space-between;
+  background: linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.00));
+  border:1px solid var(--border); border-radius: var(--radius);
+  padding:14px 16px; box-shadow: var(--shadow);
+}
+.brand{display:flex; gap:12px; align-items:center}
+.logo{
+  width:40px;height:40px;border-radius:10px;
+  display:grid;place-items:center; font-weight:800;
+  color:#0b0d12; background:var(--primary);
+  box-shadow: inset 0 -4px 8px rgba(0,0,0,.25);
+}
+.brand h1{margin:0;font-size:18px}
+.muted{color:var(--muted)}
+
+.topnav a{
+  display:inline-block; padding:8px 10px; margin-left:6px;
+  border-radius:10px; color:var(--text); text-decoration:none;
+  border:1px solid transparent;
+}
+.topnav a:hover{background:rgba(255,255,255,.04); border-color:var(--border)}
+.topnav a.active{background:rgba(106,167,255,.12); border-color:#2a5ccf}
+
+/* ====== Cards ====== */
+.card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding:14px;
+}
+.card__header{margin-bottom:8px}
+.card__header h2,.card__header h3{margin:0}
+
+/* ====== Form / Controls ====== */
+.row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.input, select, textarea{
+  background: var(--surface-2);
+  color: var(--text);
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px 12px;
+  outline:none;
+}
+.input:focus, select:focus, textarea:focus{border-color:#2a5ccf}
+textarea.input{min-height:120px; width: min(680px, 100%)}
+
+.btn{
+  appearance:none; border:1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text); padding:10px 14px; border-radius:10px;
+  cursor:pointer;
+}
+.btn:hover{background: rgba(255,255,255,.08)}
+.btn-dark{background:#1a2540}
+.btn-okay{background: rgba(51,195,142,.18); border-color:#2b9e79}
+.btn-warn{background: rgba(255,179,71,.18); border-color:#b8741e}
+.btn-ghost{background:transparent}
+.badge{display:inline-block; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid var(--border)}
+
+/* ====== Steps / Wizard ====== */
+.steps{display:flex; gap:8px; margin-bottom:10px}
+.step{display:flex; gap:6px; align-items:center; background:rgba(255,255,255,.04);
+  border:1px solid var(--border); border-radius:999px; padding:6px 10px; font-size:12px}
+.step span{display:inline-grid; place-items:center; width:18px;height:18px;
+  border-radius:999px; background:var(--primary); color:#0b0d12; font-weight:700}
+
+/* ====== Messages / Result ====== */
+.result{margin-top:10px}
+.result__text{white-space:pre-wrap; background:var(--surface-2); padding:10px; border-radius:10px; border:1px solid var(--border)}
+.result__actions{display:flex; gap:8px; margin-top:8px}
+
+/* ====== Utility ====== */
+.two-col{display:grid; grid-template-columns: 1.4fr 1fr; gap:16px; align-items:start}
+.col-left,.col-right{min-width:0}
+.sticky{position:sticky; top:16px}
+
+/* (Dein vorhandenes wizard-spezifisches CSS kann zusätzlich in styles.css liegen) */
