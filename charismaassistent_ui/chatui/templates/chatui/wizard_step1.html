@@ -1,0 +1,96 @@
+{% extends "chatui/base.html" %}
+{% load static %}
+
+{% block title %}Wizard · Step 1 · CharismaAssistant{% endblock %}
+
+{% block content %}
+<section class="card">
+  <header class="card__header">
+    <h2>Analyse-Wizard</h2>
+    <small class="muted">Step 1/2 · Redetext eingeben</small>
+  </header>
+
+  <div class="steps" aria-label="Wizard Steps">
+    <div class="step"><span>1</span> Text</div>
+    <div class="step muted" style="opacity:.7"><span style="background:rgba(255,255,255,.15);color:var(--text)">2</span> Analyse</div>
+  </div>
+
+  <div class="two-col">
+    <!-- LEFT: Input -->
+    <div class="col-left">
+      <div class="card" style="padding:12px;">
+        <div class="row" style="justify-content:space-between; gap:12px;">
+          <div>
+            <h3 style="margin:0 0 4px 0;">Redetext</h3>
+            <small class="muted">Füge den zu analysierenden Text ein (nur verbal, textbasiert).</small>
+          </div>
+          <span class="badge" id="counter">0 Wörter · 0 Zeichen</span>
+        </div>
+
+        <div style="margin-top:10px;">
+          <textarea
+            id="speechText"
+            class="input"
+            placeholder="Hier den Redetext einfügen…"
+            style="width:100%; min-height:260px;"
+          ></textarea>
+        </div>
+
+        <div class="row" style="margin-top:10px; justify-content:space-between;">
+          <div class="row">
+            <button type="button" class="btn btn-ghost" id="btnClear">Leeren</button>
+            <button type="button" class="btn btn-dark" id="btnExample">Beispieltext</button>
+          </div>
+
+          <div class="row">
+            <button type="button" class="btn btn-okay" id="btnNext" disabled>
+              Weiter → Step 2
+            </button>
+          </div>
+        </div>
+
+        <p class="muted" style="margin:10px 0 0 0;">
+          Hinweis: Der Text wird lokal gespeichert, damit Step 2 ihn automatisch übernehmen kann.
+        </p>
+      </div>
+    </div>
+
+    <!-- RIGHT: Preview + Settings -->
+    <div class="col-right sticky">
+      <div class="preview-panel">
+        <div class="preview-topic">
+          <h4>Live-Vorschau</h4>
+          <div class="muted" style="margin-bottom:8px;">
+            Auszug (erste ~600 Zeichen), so wie er später an das Backend geht.
+          </div>
+          <div id="preview" class="result__text" style="min-height:140px;"></div>
+        </div>
+
+        <div class="preview-topic">
+          <h4>Analyse-Setup (Platzhalter)</h4>
+          <div class="preview-task">
+            <div class="preview-task-title">CLTs</div>
+            <div class="preview-task-text muted">9 verbale Taktiken (Antonakis et al.)</div>
+          </div>
+          <div class="preview-task">
+            <div class="preview-task-title">Ensemble</div>
+            <div class="preview-task-text muted">wird in Step 2 konfigurierbar</div>
+          </div>
+          <div class="preview-task">
+            <div class="preview-task-title">Output</div>
+            <div class="preview-task-text muted">validiertes JSON (Scorecards + Evidenzen)</div>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px;">
+          <a class="btn btn-ghost" href="{% url 'chat' %}">← Zurück zum Chat</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="{% static 'chatui/wizard_step1.js' %}?v=20260208-1"></script>
+{% endblock %}

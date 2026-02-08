@@ -1,0 +1,100 @@
+{% extends "chatui/base.html" %}
+{% load static %}
+
+{% block title %}Wizard · Step 2 · CharismaAssistant{% endblock %}
+
+{% block content %}
+<section class="card">
+  <header class="card__header">
+    <h2>Analyse-Wizard</h2>
+    <small class="muted">Step 2/2 · Ergebnis & Explainability</small>
+  </header>
+
+  <div class="steps">
+    <div class="step muted" style="opacity:.7"><span style="background:rgba(255,255,255,.15);color:var(--text)">1</span> Text</div>
+    <div class="step"><span>2</span> Analyse</div>
+  </div>
+
+  <!-- TOP SUMMARY BAR -->
+  <div class="summary-bar" id="summaryBar">
+    <div class="summary-line">
+      <span class="summary-label">Gesamt-Charisma-Score:</span>
+      <span class="summary-value" id="summaryScore">—</span>
+    </div>
+    <div class="summary-line">
+      <span class="summary-label">Gefundene CLTs:</span>
+      <span class="summary-value" id="summaryFound">—</span>
+      <span class="summary-sep">|</span>
+      <span class="summary-label">Konsistenz (Ensemble):</span>
+      <span class="summary-value" id="summaryConsistency">—</span>
+    </div>
+    <div class="summary-line">
+      <span class="summary-label">Setup:</span>
+      <span class="summary-value" id="summarySetup">—</span>
+    </div>
+  </div>
+
+  <!-- MAIN GRID -->
+  <div class="analysis-grid">
+    <!-- LEFT: TEXT PANEL -->
+    <aside class="panel panel-left">
+      <div class="panel__header">
+        <h3>Text (satzbasiert)</h3>
+        <small class="muted">Evidenzen werden pro Satz markiert.</small>
+      </div>
+      <div class="panel__body" id="speechPanel"></div>
+
+      <div class="panel__footer row" style="justify-content:space-between;">
+        <a class="btn btn-ghost" href="{% url 'wizard_step1' %}">← Zurück</a>
+        <button class="btn btn-dark" type="button" id="btnReanalyze" disabled>Neu analysieren</button>
+      </div>
+    </aside>
+
+    <!-- CENTER: SCORECARD TABLE -->
+    <main class="panel panel-center">
+      <div class="panel__header">
+        <h3>CLT Scorecard</h3>
+        <small class="muted">Klick auf eine CLT öffnet Details rechts.</small>
+      </div>
+
+      <div class="panel__body" style="padding-top:6px;">
+        <div class="table-wrap">
+          <table class="score-table" id="scoreTable">
+            <thead>
+              <tr>
+                <th style="width:44%;">CLT</th>
+                <th style="width:8%;">✓</th>
+                <th style="width:18%;">Stärke</th>
+                <th style="width:18%;">Vertrauen</th>
+                <th style="width:12%;">Details</th>
+              </tr>
+            </thead>
+            <tbody id="scoreTbody">
+              <!-- JS inject -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT: DETAIL DRAWER -->
+    <aside class="panel panel-right" id="detailPanel" data-open="false">
+      <div class="panel__header row" style="justify-content:space-between; align-items:flex-start;">
+        <div>
+          <h3 id="detailTitle">Details</h3>
+          <small class="muted" id="detailMeta">Wähle eine CLT aus.</small>
+        </div>
+        <button class="btn btn-ghost" type="button" id="btnCloseDetails">✕</button>
+      </div>
+
+      <div class="panel__body" id="detailBody">
+        <div class="muted">Noch keine Auswahl.</div>
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script defer src="{% static 'chatui/wizard_step2.js' %}?v=20260208-1"></script>
+{% endblock %}
