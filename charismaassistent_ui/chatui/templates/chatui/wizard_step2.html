@@ -11,7 +11,9 @@
   </header>
 
   <div class="steps">
-    <div class="step muted" style="opacity:.7"><span style="background:rgba(255,255,255,.15);color:var(--text)">1</span> Text</div>
+    <div class="step muted" style="opacity:.7">
+      <span style="background:rgba(255,255,255,.15);color:var(--text)">1</span> Text
+    </div>
     <div class="step"><span>2</span> Analyse</div>
   </div>
 
@@ -28,9 +30,27 @@
       <span class="summary-label">Konsistenz (Ensemble):</span>
       <span class="summary-value" id="summaryConsistency">—</span>
     </div>
-    <div class="summary-line">
-      <span class="summary-label">Setup:</span>
-      <span class="summary-value" id="summarySetup">—</span>
+    <div class="summary-line" style="display:flex; justify-content:space-between; gap:10px; align-items:center;">
+      <div>
+        <span class="summary-label">Setup:</span>
+        <span class="summary-value" id="summarySetup">—</span>
+      </div>
+
+      <!-- MODEL TOGGLE (optional compare mode) -->
+      <div class="row" style="gap:10px; align-items:center;">
+        <span class="muted">LLM:</span>
+
+        <button class="btn btn-ghost btn-sm"
+                type="button"
+                id="btnToggleLLM"
+                data-active="gpt"
+                style="white-space:nowrap;">
+          LLM auswählen: Gemini
+        </button>
+
+        <span class="badge" id="modelBadge">GPT</span>
+        <span class="muted" id="runInfo">—</span>
+      </div>
     </div>
   </div>
 
@@ -93,8 +113,16 @@
     </aside>
   </div>
 </section>
+
+{# OPTIONAL: Eğer backend’den direkt JSON inject edeceksen burayı kullanabilirsin
+<script>
+  window.RESULT_GPT = {{ result_gpt_json|safe }};
+  window.RESULT_GEMINI = {{ result_gemini_json|safe }};
+</script>
+#}
+
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{% static 'chatui/wizard_step2.js' %}?v=20260208-1"></script>
+<script defer src="{% static 'chatui/wizard_step2.js' %}?v=20260208-2"></script>
 {% endblock %}

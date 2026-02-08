@@ -13,7 +13,7 @@ from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 
 
 FASTAPI_BASE = getattr(settings, "FASTAPI_BASE", "http://localhost:8000")
-
+FASTAPI_URL = "http://localhost:8000/analyze"  # später docker-intern anpassen
 
 
 def chat_page(request):
@@ -32,3 +32,14 @@ def wizard_step2(request):
     For now: client-side mock JSON (until FastAPI/LLM is wired).
     """
     return render(request, "chatui/wizard_step2.html")
+
+@require_POST
+@csrf_exempt  
+def analyze_proxy(request):
+    payload = json.loads(request.body.decode("utf-8"))
+    # expected: { "text": "...", "enable_compare": true/false }
+    try:
+      r = requests.post(FASTAPI_URL, json=payload, timeout=60)
+      return JsonResponse(r.json(), status=r.status_code, safe=False)
+    except requests.RequestException as e:
+      return JsonResponse({"error": "backend_unavailable", "detail": str(e)}, status=503)

@@ -78,3 +78,22 @@ Gemeinsam werden wir zeigen, dass Fortschritt nicht Angst macht, sondern Hoffnun
 
   loadFromStorage();
 })();
+const COMPARE_KEY = "charismaassistant:enableCompare:v1";
+const elCompare = document.getElementById("enableCompare");
+
+function loadCompare() {
+  try {
+    const v = localStorage.getItem(COMPARE_KEY);
+    elCompare.checked = v === "1";
+  } catch {}
+}
+
+elCompare.addEventListener("change", () => {
+  try {
+    localStorage.setItem(COMPARE_KEY, elCompare.checked ? "1" : "0");
+  } catch {}
+});
+
+// beim Init:
+loadCompare();
+
