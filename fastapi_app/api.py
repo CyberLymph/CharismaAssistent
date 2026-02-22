@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 
 from fastapi import FastAPI
 from pydantic import ValidationError
@@ -21,11 +21,10 @@ logging.basicConfig(level=logging.INFO)
 try:
     from dotenv import load_dotenv  # pip install python-dotenv
 
-    BASE_DIR = Path(__file__).resolve().parent  # fastapi_app/
-    # Try common locations: project root ".env" and fastapi_app/.env
+    BASE_DIR_ENV = Path(__file__).resolve().parent  # fastapi_app/
     candidates = [
-        BASE_DIR.parent / ".env",
-        BASE_DIR / ".env",
+        BASE_DIR_ENV.parent / ".env",  # project root
+        BASE_DIR_ENV / ".env",         # fastapi_app/.env
     ]
     loaded = False
     for p in candidates:
@@ -35,7 +34,6 @@ try:
             loaded = True
             break
     if not loaded:
-        # fallback: current working directory
         load_dotenv()
         logger.info("Loaded .env from current working directory (fallback)")
 except Exception:
@@ -115,7 +113,7 @@ DEFAULT_USER_PROMPT_TEMPLATE_FALLBACK = (
 )
 
 # -----------------------------
-# NEW: Safe template rendering (prevents KeyError when template contains JSON braces)
+# Safe template rendering (prevents KeyError when template contains JSON braces)
 # -----------------------------
 def render_user_prompt(template: str, text: str) -> str:
     """
@@ -132,7 +130,158 @@ def render_user_prompt(template: str, text: str) -> str:
     # If no placeholder exists, append text block
     return template.rstrip() + "\n\nText:\n'''\n" + text + "\n'''\n"
 
+# -----------------------------
+# Prompt loading
+# -----------------------------
+def _read_text_file(path: Path) -> Optional[str]:
+    if not path:
+        return None
+    if not path.is_file():
+        logger.warning("Prompt file not found: %s", path)
+        return None
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except Exception:
+        logger.exception("Failed to read prompt file: %s", path)
+        return None
 
+def load_prompts() -> Tuple[str, str, Path, Optional[Path]]:
+    """
+    Load prompts with precedence:
+      1) ENV path overrides (SYSTEM_PROMPT_DEFAULT_PATH / USER_PROMPT_DEFAULT_PATH)
+      2) default local paths under fastapi_app/prompts/
+      3) fallback hardcoded strings
+    Returns: (system_prompt, user_template, system_path_used, user_path_used_or_None)
+    """
+    system_env = os.getenv("SYSTEM_PROMPT_DEFAULT_PATH")
+    user_env = os.getenv("USER_PROMPT_DEFAULT_PATH")
+
+    system_path = Path(system_env) if system_env else DEFAULT_SYSTEM_PROMPT_PATH
+    user_path = Path(user_env) if user_env else DEFAULT_USER_PROMPT_PATH
+
+    system_prompt = _read_text_file(system_path) or DEFAULT_SYSTEM_PROMPT_FALLBACK
+    user_template = _read_text_file(user_path) or DEFAULT_USER_PROMPT_TEMPLATE_FALLBACK
+
+    # Ensure placeholder exists (for our renderer)
+    if "{text}" not in user_template:
+        logger.warning("User prompt template missing '{text}' placeholder; appending text block.")
+        user_template = user_template.strip() + "\n\nText:\n'''{text}'''\n"
+
+    user_path_used = user_path if user_path.is_file() else None
+    system_path_used = system_path if system_path.is_file() else DEFAULT_SYSTEM_PROMPT_PATH
+
+    return system_prompt, user_template, system_path_used, user_path_used
+
+SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SYSTEM_PATH_USED, USER_PATH_USED = load_prompts()
+logger.info("System prompt loaded from: %s", SYSTEM_PATH_USED)
+logger.info("User prompt loaded from: %s", USER_PATH_USED if USER_PATH_USED else "(fallback string)")
+
+# -----------------------------
+# JSON extraction helper (balanced braces)
+# -----------------------------
+def extract_json(raw: str) -> Optional[str]:
+    raw = (raw or "").strip()
+    if not raw:
+        return None
+
+    # 1) Direct parse
+    try:
+        json.loads(raw)
+        return raw
+    except Exception:
+        pass
+
+    # 2) Find first balanced {...} that parses
+    start = raw.find("{")
+    if start == -1:
+        return None
+
+    in_str = False
+    escape = False
+    depth = 0
+
+    for i in range(start, len(raw)):
+        ch = raw[i]
+
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+            continue
+        else:
+            if ch == '"':
+                in_str = True
+                continue
+
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                cand = raw[start : i + 1]
+                try:
+                    json.loads(cand)
+                    return cand
+                except Exception:
+                    nxt = raw.find("{", start + 1)
+                    if nxt == -1:
+                        return None
+                    return extract_json(raw[nxt:])
+
+    return None
+
+# -----------------------------
+# Deterministic mock
+# -----------------------------
+def deterministic_seed(text: str, model: str) -> int:
+    h = hashlib.sha256((model + "::" + text).encode("utf-8")).hexdigest()
+    return int(h[:8], 16)
+
+def mock_analyze(text: str, model: str, llm_runs: int = 1) -> CLTAnalysis:
+    seed = deterministic_seed(text, model)
+    base_conf = 0.62 if model == "gpt" else 0.58
+    bump = (seed % 17) / 100.0
+    conf0 = min(0.92, base_conf + bump)
+
+    sentences = [s.strip() for s in (text or "").replace("\r\n", "\n").split("\n") if s.strip()]
+
+    def pick(i: int) -> str:
+        if sentences:
+            return sentences[min(i, len(sentences) - 1)][:160]
+        return (text or "")[:160]
+
+    items: List[CLTItem] = []
+    for idx, (cid, label) in enumerate(CLTS):
+        strength = (seed + idx) % 4
+        present = strength >= 1
+        confidence = max(0.50, min(0.95, conf0 - idx * 0.03))
+        evidence = [EvidenceItem(quote=pick(idx))] if present else []
+
+        items.append(
+            CLTItem(
+                clt_id=cid,
+                label=label,
+                present=present,
+                strength=strength,
+                confidence=confidence,
+                evidence=evidence,
+                rationale_short="Mock-Analyse (LLM nicht verfügbar).",
+            )
+        )
+
+    overall = round((sum((it.strength / 3) * it.confidence for it in items) / len(items)) * 100)
+    meta = AnalysisMeta(
+        setup=AnalysisMetaSetup(clts=9, llm_runs=int(llm_runs), mode=f"{model.upper()} (Mock) · Ensemble({int(llm_runs)})"),
+        consistency=None,
+    )
+    return CLTAnalysis(meta=meta, overall_score=int(overall), items=items)
+
+# -----------------------------
+# Normalization (schema repair)
+# -----------------------------
 def normalize_llm_output(parsed: dict, model_name: str) -> dict:
     """
     Best-effort normalization to match CLTAnalysis schema.
@@ -214,155 +363,6 @@ def normalize_llm_output(parsed: dict, model_name: str) -> dict:
 
     return parsed
 
-
-def _read_text_file(path: Path) -> Optional[str]:
-    if not path:
-        return None
-    if not path.is_file():
-        logger.warning("Prompt file not found: %s", path)
-        return None
-    try:
-        return path.read_text(encoding="utf-8").strip()
-    except Exception:
-        logger.exception("Failed to read prompt file: %s", path)
-        return None
-
-
-def load_prompts() -> Tuple[str, str, Path, Optional[Path]]:
-    """
-    Load prompts with precedence:
-      1) ENV path overrides (SYSTEM_PROMPT_DEFAULT_PATH / USER_PROMPT_DEFAULT_PATH)
-      2) default local paths under fastapi_app/prompts/
-      3) fallback hardcoded strings
-    Returns: (system_prompt, user_template, system_path_used, user_path_used_or_None)
-    """
-    system_env = os.getenv("SYSTEM_PROMPT_DEFAULT_PATH")
-    user_env = os.getenv("USER_PROMPT_DEFAULT_PATH")
-
-    system_path = Path(system_env) if system_env else DEFAULT_SYSTEM_PROMPT_PATH
-    user_path = Path(user_env) if user_env else DEFAULT_USER_PROMPT_PATH
-
-    system_prompt = _read_text_file(system_path) or DEFAULT_SYSTEM_PROMPT_FALLBACK
-    user_template = _read_text_file(user_path) or DEFAULT_USER_PROMPT_TEMPLATE_FALLBACK
-
-    # Ensure placeholder exists (for our renderer)
-    if "{text}" not in user_template:
-        logger.warning("User prompt template missing '{text}' placeholder; appending text block.")
-        user_template = user_template.strip() + "\n\nText:\n'''{text}'''\n"
-
-    user_path_used = user_path if user_path.is_file() else None
-    system_path_used = system_path if system_path.is_file() else DEFAULT_SYSTEM_PROMPT_PATH
-
-    return system_prompt, user_template, system_path_used, user_path_used
-
-
-SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SYSTEM_PATH_USED, USER_PATH_USED = load_prompts()
-logger.info("System prompt loaded from: %s", SYSTEM_PATH_USED)
-logger.info("User prompt loaded from: %s", USER_PATH_USED if USER_PATH_USED else "(fallback string)")
-
-# -----------------------------
-# JSON extraction helper (balanced braces)
-# -----------------------------
-def extract_json(raw: str) -> Optional[str]:
-    raw = (raw or "").strip()
-    if not raw:
-        return None
-
-    # 1) Direct parse
-    try:
-        json.loads(raw)
-        return raw
-    except Exception:
-        pass
-
-    # 2) Find first balanced {...} that parses
-    start = raw.find("{")
-    if start == -1:
-        return None
-
-    in_str = False
-    escape = False
-    depth = 0
-
-    for i in range(start, len(raw)):
-        ch = raw[i]
-
-        if in_str:
-            if escape:
-                escape = False
-            elif ch == "\\":
-                escape = True
-            elif ch == '"':
-                in_str = False
-            continue
-        else:
-            if ch == '"':
-                in_str = True
-                continue
-
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                cand = raw[start : i + 1]
-                try:
-                    json.loads(cand)
-                    return cand
-                except Exception:
-                    nxt = raw.find("{", start + 1)
-                    if nxt == -1:
-                        return None
-                    return extract_json(raw[nxt:])
-
-    return None
-
-# -----------------------------
-# Deterministic mock
-# -----------------------------
-def deterministic_seed(text: str, model: str) -> int:
-    h = hashlib.sha256((model + "::" + text).encode("utf-8")).hexdigest()
-    return int(h[:8], 16)
-
-def mock_analyze(text: str, model: str) -> CLTAnalysis:
-    seed = deterministic_seed(text, model)
-    base_conf = 0.62 if model == "gpt" else 0.58
-    bump = (seed % 17) / 100.0
-    conf0 = min(0.92, base_conf + bump)
-
-    sentences = [s.strip() for s in (text or "").replace("\r\n", "\n").split("\n") if s.strip()]
-
-    def pick(i: int) -> str:
-        if sentences:
-            return sentences[min(i, len(sentences) - 1)][:160]
-        return (text or "")[:160]
-
-    items = []
-    for idx, (cid, label) in enumerate(CLTS):
-        strength = (seed + idx) % 4
-        present = strength >= 1
-        confidence = max(0.50, min(0.95, conf0 - idx * 0.03))
-        evidence = [EvidenceItem(quote=pick(idx))] if present else []
-
-        items.append(
-            CLTItem(
-                clt_id=cid,
-                label=label,
-                present=present,
-                strength=strength,
-                confidence=confidence,
-                evidence=evidence,
-                rationale_short="Mock-Analyse (LLM nicht verfügbar).",
-            )
-        )
-
-    overall = round((sum((it.strength / 3) * it.confidence for it in items) / len(items)) * 100)
-    meta = AnalysisMeta(
-        setup=AnalysisMetaSetup(clts=9, llm_runs=1, mode=f"{model.upper()} (Mock)"),
-        consistency=None,
-    )
-    return CLTAnalysis(meta=meta, overall_score=overall, items=items)
-
 # -----------------------------
 # LLM analysis + validation
 # -----------------------------
@@ -422,37 +422,193 @@ def analyze_with_wrapper(wrapper, text: str, model_name: str) -> CLTAnalysis:
     return analysis
 
 # -----------------------------
+# Ensemble / Aggregation
+# -----------------------------
+def _clamp_int(x: int, lo: int, hi: int) -> int:
+    return max(lo, min(hi, int(x)))
+
+def _clamp_float(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, float(x)))
+
+def compute_consistency_present(runs: List[CLTAnalysis]) -> float:
+    """
+    Consistency = share of CLTs where all runs agree on 'present' (0..1).
+    """
+    if not runs:
+        return 0.0
+
+    matrix: Dict[str, List[bool]] = {cid: [] for cid in CLT_ID_ORDER}
+    for r in runs:
+        by_id = {it.clt_id: it for it in r.items}
+        for cid in CLT_ID_ORDER:
+            it = by_id.get(cid)
+            matrix[cid].append(bool(it.present) if it else False)
+
+    agree = 0
+    for cid, vals in matrix.items():
+        if vals and all(v == vals[0] for v in vals):
+            agree += 1
+
+    return agree / len(CLT_ID_ORDER)
+
+def aggregate_runs(model_name: str, runs: List[CLTAnalysis]) -> CLTAnalysis:
+    """
+    Majority vote (present), mean strength/confidence, merge evidence.
+    """
+    if not runs:
+        return mock_analyze("", model_name, llm_runs=1)
+
+    run_dicts = [{it.clt_id: it for it in r.items} for r in runs]
+
+    aggregated_items: List[CLTItem] = []
+
+    for cid in CLT_ID_ORDER:
+        label = CLT_LABEL_MAP.get(cid, cid)
+
+        presents: List[bool] = []
+        strengths: List[int] = []
+        confidences: List[float] = []
+        evid_quotes: List[str] = []
+        rationales: List[str] = []
+
+        for rd in run_dicts:
+            it = rd.get(cid)
+            if not it:
+                continue
+
+            presents.append(bool(it.present))
+            strengths.append(int(it.strength))
+            confidences.append(float(it.confidence))
+
+            for ev in (it.evidence or []):
+                q = (ev.quote or "").strip()
+                if q:
+                    evid_quotes.append(q)
+
+            rs = (it.rationale_short or "").strip()
+            if rs:
+                rationales.append(rs)
+
+        # majority vote (ties -> False)
+        true_count = sum(1 for v in presents if v)
+        present = true_count > (len(presents) / 2) if presents else False
+
+        strength_avg = round(sum(strengths) / max(1, len(strengths))) if strengths else 0
+        confidence_avg = (sum(confidences) / max(1, len(confidences))) if confidences else 0.0
+
+        strength = _clamp_int(strength_avg, 0, 3)
+        confidence = _clamp_float(confidence_avg, 0.0, 1.0)
+
+        # evidence unique + limit
+        uniq: List[str] = []
+        seen = set()
+        for q in evid_quotes:
+            key = q.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq.append(q)
+            if len(uniq) >= 3:
+                break
+
+        evidence = [EvidenceItem(quote=q[:240]) for q in uniq] if present else []
+
+        # rationale: take first; keep compact
+        rationale = (rationales[0] if rationales else "Ensemble aggregation (no rationale provided).")[:280]
+
+        aggregated_items.append(
+            CLTItem(
+                clt_id=cid,
+                label=label,
+                present=present,
+                strength=strength,
+                confidence=confidence,
+                evidence=evidence,
+                rationale_short=rationale,
+            )
+        )
+
+    overall = round(
+        (sum((it.strength / 3) * it.confidence for it in aggregated_items) / len(aggregated_items)) * 100
+    )
+
+    consistency = compute_consistency_present(runs)
+
+    meta = AnalysisMeta(
+        setup=AnalysisMetaSetup(
+            clts=9,
+            llm_runs=len(runs),
+            mode=f"{model_name.upper()} · Ensemble({len(runs)}) · Rule+LLM",
+        ),
+        consistency=_clamp_float(consistency, 0.0, 1.0),
+    )
+
+    return CLTAnalysis(
+        meta=meta,
+        overall_score=_clamp_int(overall, 0, 100),
+        items=aggregated_items,
+    )
+
+def run_ensemble(wrapper, text: str, model_name: str, llm_runs: int) -> CLTAnalysis:
+    """
+    Executes llm_runs calls and aggregates.
+    Falls back to mock if wrapper unavailable or all calls fail.
+    """
+    llm_runs = int(llm_runs or 1)
+    if llm_runs < 1:
+        llm_runs = 1
+
+    if not wrapper.is_available():
+        return mock_analyze(text, model_name, llm_runs=llm_runs)
+
+    runs: List[CLTAnalysis] = []
+    for i in range(llm_runs):
+        try:
+            runs.append(analyze_with_wrapper(wrapper, text, model_name))
+        except Exception:
+            logger.exception("%s run %d/%d failed", model_name.upper(), i + 1, llm_runs)
+
+    if not runs:
+        return mock_analyze(text, model_name, llm_runs=llm_runs)
+
+    if len(runs) == 1:
+        # enrich meta
+        r = runs[0]
+        try:
+            r.meta.setup.llm_runs = llm_runs
+            r.meta.setup.mode = f"{model_name.upper()} · SingleRun(1/{llm_runs})"
+            r.meta.consistency = None
+        except Exception:
+            pass
+        return r
+
+    return aggregate_runs(model_name, runs)
+
+# -----------------------------
 # Endpoint
 # -----------------------------
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
     text = req.text
     enable_compare = bool(req.enable_compare)
+    llm_runs = int(getattr(req, "llm_runs", 3) or 3)
 
     analyses: Dict[str, CLTAnalysis] = {}
 
-    # GPT (primary)
-    if GPT.is_available():
-        try:
-            analyses["gpt"] = analyze_with_wrapper(GPT, text, "gpt")
-            logger.info("GPT LIVE used (no mock).")
-        except Exception:
-            logger.exception("GPT analysis failed; falling back to mock")
-            analyses["gpt"] = mock_analyze(text, "gpt")
-    else:
-        logger.warning("GPT not available; using mock (check OPENAI_API_KEY / SDK).")
-        analyses["gpt"] = mock_analyze(text, "gpt")
+    # GPT (primary) — Ensemble
+    try:
+        analyses["gpt"] = run_ensemble(GPT, text, "gpt", llm_runs)
+        logger.info("GPT analysis done (llm_runs=%s).", llm_runs)
+    except Exception:
+        logger.exception("GPT ensemble failed; falling back to mock")
+        analyses["gpt"] = mock_analyze(text, "gpt", llm_runs=llm_runs)
 
-    # Gemini (optional compare)
+    # Gemini (optional compare) — Ensemble
     if enable_compare:
-        if GEMINI.is_available():
-            try:
-                analyses["gemini"] = analyze_with_wrapper(GEMINI, text, "gemini")
-            except Exception:
-                logger.exception("Gemini analysis failed; falling back to mock")
-                analyses["gemini"] = mock_analyze(text, "gemini")
-        else:
-            logger.info("Gemini not available; using mock")
-            analyses["gemini"] = mock_analyze(text, "gemini")
+        try:
+            analyses["gemini"] = run_ensemble(GEMINI, text, "gemini", llm_runs)
+        except Exception:
+            logger.exception("Gemini ensemble failed; falling back to mock")
+            analyses["gemini"] = mock_analyze(text, "gemini", llm_runs=llm_runs)
 
     return AnalyzeResponse(analyses=analyses)
