@@ -1,0 +1,42 @@
+You must produce ONE JSON object that conforms EXACTLY to this schema:
+
+{
+  "meta": {
+    "setup": { "clts": 9, "llm_runs": 1, "mode": "..." },
+    "consistency": null
+  },
+  "overall_score": 0,
+  "items": [
+    {
+      "clt_id": "moral_conviction",
+      "label": "Moral Conviction",
+      "present": false,
+      "strength": 0,
+      "confidence": 0.0,
+      "evidence": [ { "quote": "..." } ],
+      "rationale_short": "..."
+    }
+  ]
+}
+
+Hard constraints:
+- overall_score MUST be an integer between 0 and 100 (no decimals).
+- items MUST contain exactly 9 objects (one per CLT), in any order.
+- clt_id MUST be exactly one of these strings (no numbers):
+  1) moral_conviction
+  2) collective_sentiment
+  3) lists_repetition
+  4) rhetorical_question
+  5) contrast
+  6) story_anecdote
+  7) metaphor_simile
+  8) ambitious_goals
+  9) confidence_in_goals
+- strength MUST be an integer 0..3
+- confidence MUST be a float 0.0..1.0
+- evidence MUST be a list of objects with key "quote" (verbatim text spans from the speech, short).
+- rationale_short MUST be a short explanation (max ~280 characters).
+- Use ONLY these fields. Do not include speech_title, date, or any other keys.
+
+Speech text to analyze:
+'''{text}'''

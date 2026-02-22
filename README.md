@@ -15,6 +15,8 @@ cd fastapi_app
 
 uvicorn api:app --host 127.0.0.1 --port 8000 --reload
 
+uvicorn api:app --reload --host 127.0.0.1 --port 8000
+
 ---
 Swagger UI → http://127.0.0.1:8000/docs
 
