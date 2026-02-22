@@ -7,6 +7,7 @@ urlpatterns = [
     path("api/analyze/", views.analyze_proxy, name="analyze_proxy"),
     path("wizard/step-1/", views.wizard_step1, name="wizard_step1"),
     path("wizard/step-2/", views.wizard_step2, name="wizard_step2"),
+    path("api/analyze_stream/", views.analyze_stream_proxy, name="analyze_stream_proxy")
 ]
             
 

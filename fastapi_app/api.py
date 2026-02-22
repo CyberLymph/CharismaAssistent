@@ -4,9 +4,10 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, Tuple, List, Generator, Any
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 # -----------------------------
@@ -130,6 +131,7 @@ def render_user_prompt(template: str, text: str) -> str:
     # If no placeholder exists, append text block
     return template.rstrip() + "\n\nText:\n'''\n" + text + "\n'''\n"
 
+
 # -----------------------------
 # Prompt loading
 # -----------------------------
@@ -144,6 +146,7 @@ def _read_text_file(path: Path) -> Optional[str]:
     except Exception:
         logger.exception("Failed to read prompt file: %s", path)
         return None
+
 
 def load_prompts() -> Tuple[str, str, Path, Optional[Path]]:
     """
@@ -172,9 +175,11 @@ def load_prompts() -> Tuple[str, str, Path, Optional[Path]]:
 
     return system_prompt, user_template, system_path_used, user_path_used
 
+
 SYSTEM_PROMPT, USER_PROMPT_TEMPLATE, SYSTEM_PATH_USED, USER_PATH_USED = load_prompts()
 logger.info("System prompt loaded from: %s", SYSTEM_PATH_USED)
 logger.info("User prompt loaded from: %s", USER_PATH_USED if USER_PATH_USED else "(fallback string)")
+
 
 # -----------------------------
 # JSON extraction helper (balanced braces)
@@ -233,12 +238,14 @@ def extract_json(raw: str) -> Optional[str]:
 
     return None
 
+
 # -----------------------------
 # Deterministic mock
 # -----------------------------
 def deterministic_seed(text: str, model: str) -> int:
     h = hashlib.sha256((model + "::" + text).encode("utf-8")).hexdigest()
     return int(h[:8], 16)
+
 
 def mock_analyze(text: str, model: str, llm_runs: int = 1) -> CLTAnalysis:
     seed = deterministic_seed(text, model)
@@ -265,19 +272,24 @@ def mock_analyze(text: str, model: str, llm_runs: int = 1) -> CLTAnalysis:
                 clt_id=cid,
                 label=label,
                 present=present,
-                strength=strength,
-                confidence=confidence,
+                strength=int(strength),
+                confidence=float(confidence),
                 evidence=evidence,
-                rationale_short="Mock-Analyse (LLM nicht verfügbar).",
+                rationale_short="Mock analysis (LLM not available).",
             )
         )
 
     overall = round((sum((it.strength / 3) * it.confidence for it in items) / len(items)) * 100)
     meta = AnalysisMeta(
-        setup=AnalysisMetaSetup(clts=9, llm_runs=int(llm_runs), mode=f"{model.upper()} (Mock) · Ensemble({int(llm_runs)})"),
+        setup=AnalysisMetaSetup(
+            clts=9,
+            llm_runs=int(llm_runs),
+            mode=f"{model.upper()} (Mock) · Ensemble({int(llm_runs)})",
+        ),
         consistency=None,
     )
     return CLTAnalysis(meta=meta, overall_score=int(overall), items=items)
+
 
 # -----------------------------
 # Normalization (schema repair)
@@ -363,6 +375,7 @@ def normalize_llm_output(parsed: dict, model_name: str) -> dict:
 
     return parsed
 
+
 # -----------------------------
 # LLM analysis + validation
 # -----------------------------
@@ -370,6 +383,7 @@ def _validate_clt_analysis(parsed: dict) -> CLTAnalysis:
     if hasattr(CLTAnalysis, "model_validate"):
         return CLTAnalysis.model_validate(parsed)  # pydantic v2
     return CLTAnalysis.parse_obj(parsed)  # pydantic v1
+
 
 def analyze_with_wrapper(wrapper, text: str, model_name: str) -> CLTAnalysis:
     # IMPORTANT: safe rendering (no .format(), avoids KeyError when template contains JSON braces)
@@ -421,14 +435,17 @@ def analyze_with_wrapper(wrapper, text: str, model_name: str) -> CLTAnalysis:
 
     return analysis
 
+
 # -----------------------------
 # Ensemble / Aggregation
 # -----------------------------
 def _clamp_int(x: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, int(x)))
 
+
 def _clamp_float(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(x)))
+
 
 def compute_consistency_present(runs: List[CLTAnalysis]) -> float:
     """
@@ -445,11 +462,12 @@ def compute_consistency_present(runs: List[CLTAnalysis]) -> float:
             matrix[cid].append(bool(it.present) if it else False)
 
     agree = 0
-    for cid, vals in matrix.items():
+    for _, vals in matrix.items():
         if vals and all(v == vals[0] for v in vals):
             agree += 1
 
     return agree / len(CLT_ID_ORDER)
+
 
 def aggregate_runs(model_name: str, runs: List[CLTAnalysis]) -> CLTAnalysis:
     """
@@ -549,6 +567,7 @@ def aggregate_runs(model_name: str, runs: List[CLTAnalysis]) -> CLTAnalysis:
         items=aggregated_items,
     )
 
+
 def run_ensemble(wrapper, text: str, model_name: str, llm_runs: int) -> CLTAnalysis:
     """
     Executes llm_runs calls and aggregates.
@@ -572,7 +591,6 @@ def run_ensemble(wrapper, text: str, model_name: str, llm_runs: int) -> CLTAnaly
         return mock_analyze(text, model_name, llm_runs=llm_runs)
 
     if len(runs) == 1:
-        # enrich meta
         r = runs[0]
         try:
             r.meta.setup.llm_runs = llm_runs
@@ -584,8 +602,73 @@ def run_ensemble(wrapper, text: str, model_name: str, llm_runs: int) -> CLTAnaly
 
     return aggregate_runs(model_name, runs)
 
+
 # -----------------------------
-# Endpoint
+# NEW: Streaming Ensemble (NDJSON events for UI progress)
+# -----------------------------
+def _ndjson(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False) + "\n"
+
+
+def run_ensemble_stream(wrapper, text: str, model_name: str, llm_runs: int) -> Generator[str, None, CLTAnalysis]:
+    """
+    Streams run completion events as NDJSON lines.
+    Yields:
+      - {"type":"run_done","model":"gpt","run":1,"overall_score":..}
+    Returns:
+      - aggregated CLTAnalysis (via generator return)
+    """
+    llm_runs = int(llm_runs or 1)
+    if llm_runs < 1:
+        llm_runs = 1
+
+    if not wrapper.is_available():
+        # No LLM: stream mock runs as if completed
+        mock_run = mock_analyze(text, model_name, llm_runs=1)
+        for i in range(1, llm_runs + 1):
+            yield _ndjson(
+                {"type": "run_done", "model": model_name, "run": i, "overall_score": int(mock_run.overall_score)}
+            )
+        return mock_analyze(text, model_name, llm_runs=llm_runs)
+
+    runs: List[CLTAnalysis] = []
+    for i in range(1, llm_runs + 1):
+        try:
+            r = analyze_with_wrapper(wrapper, text, model_name)
+            runs.append(r)
+            yield _ndjson({"type": "run_done", "model": model_name, "run": i, "overall_score": int(r.overall_score)})
+        except Exception as e:
+            logger.exception("%s run %d/%d failed", model_name.upper(), i, llm_runs)
+
+            # Keep UI moving: send a run_done anyway (mock fallback for this run)
+            fallback = mock_analyze(text, model_name, llm_runs=1)
+            yield _ndjson(
+                {
+                    "type": "run_done",
+                    "model": model_name,
+                    "run": i,
+                    "overall_score": int(fallback.overall_score),
+                    "note": "fallback_mock",
+                    "error": str(e)[:200],
+                }
+            )
+
+    if not runs:
+        return mock_analyze(text, model_name, llm_runs=llm_runs)
+
+    if len(runs) == 1 and llm_runs == 1:
+        # already correct meta from LLM; adjust to show llm_runs
+        try:
+            runs[0].meta.setup.llm_runs = 1
+        except Exception:
+            pass
+        return runs[0]
+
+    return aggregate_runs(model_name, runs)
+
+
+# -----------------------------
+# Endpoints
 # -----------------------------
 @app.post("/analyze", response_model=AnalyzeResponse)
 def analyze(req: AnalyzeRequest):
@@ -612,3 +695,72 @@ def analyze(req: AnalyzeRequest):
             analyses["gemini"] = mock_analyze(text, "gemini", llm_runs=llm_runs)
 
     return AnalyzeResponse(analyses=analyses)
+
+
+@app.post("/analyze_stream")
+def analyze_stream(req: AnalyzeRequest):
+    """
+    Streams NDJSON so the UI can show:
+      Run 1 done, Run 2 done, Run 3 done, ...
+    Final line contains the aggregated result:
+      {"type":"final","analyses":{...}}
+    """
+    text = req.text
+    enable_compare = bool(req.enable_compare)
+    llm_runs = int(getattr(req, "llm_runs", 3) or 3)
+
+    def event_gen() -> Generator[str, None, None]:
+        analyses: Dict[str, Any] = {}
+
+        # Optional "progress" header event (UI supports it)
+        yield _ndjson({"type": "progress", "message": f"Starting ensemble: GPT runs={llm_runs}"})
+
+        # --- GPT streamed runs ---
+        try:
+            gpt_stream = run_ensemble_stream(GPT, text, "gpt", llm_runs)
+            gpt_result: Optional[CLTAnalysis] = None
+            while True:
+                try:
+                    line = next(gpt_stream)
+                    yield line
+                except StopIteration as si:
+                    gpt_result = si.value  # aggregated CLTAnalysis
+                    break
+            analyses["gpt"] = gpt_result if gpt_result else mock_analyze(text, "gpt", llm_runs=llm_runs)
+            logger.info("GPT streamed analysis done (llm_runs=%s).", llm_runs)
+        except Exception as e:
+            logger.exception("GPT streaming failed; falling back to mock")
+            analyses["gpt"] = mock_analyze(text, "gpt", llm_runs=llm_runs)
+            yield _ndjson({"type": "error", "message": f"GPT stream failed: {str(e)[:200]}"})
+
+        # --- Gemini streamed runs (optional) ---
+        if enable_compare:
+            yield _ndjson({"type": "progress", "message": f"Starting ensemble: GEMINI runs={llm_runs}"})
+            try:
+                gem_stream = run_ensemble_stream(GEMINI, text, "gemini", llm_runs)
+                gem_result: Optional[CLTAnalysis] = None
+                while True:
+                    try:
+                        line = next(gem_stream)
+                        yield line
+                    except StopIteration as si:
+                        gem_result = si.value
+                        break
+                analyses["gemini"] = gem_result if gem_result else mock_analyze(text, "gemini", llm_runs=llm_runs)
+            except Exception as e:
+                logger.exception("Gemini streaming failed; falling back to mock")
+                analyses["gemini"] = mock_analyze(text, "gemini", llm_runs=llm_runs)
+                yield _ndjson({"type": "error", "message": f"Gemini stream failed: {str(e)[:200]}"})
+
+        # Final payload (the UI consumes this to render everything)
+        final_obj = {"type": "final", "analyses": analyses}
+        yield _ndjson(final_obj)
+
+    return StreamingResponse(
+    event_gen(),
+    media_type="application/x-ndjson",
+    headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    },
+)

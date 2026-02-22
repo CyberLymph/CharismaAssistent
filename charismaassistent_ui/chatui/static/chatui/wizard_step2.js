@@ -1,14 +1,8 @@
-// wizard_step2.js
+// wizard_step2.js (EN + streamed run distribution) - ROBUST RUN LOG
 (function () {
-  // =========================
-  // Storage keys
-  // =========================
   const TEXT_KEY = "charismaassistant:speechText:v1";
   const COMPARE_KEY = "charismaassistant:enableCompare:v1";
 
-  // =========================
-  // Elements
-  // =========================
   const elSpeechPanel = document.getElementById("speechPanel");
   const elTbody = document.getElementById("scoreTbody");
 
@@ -23,16 +17,13 @@
   const elSummarySetup = document.getElementById("summarySetup");
 
   const btnCloseDetails = document.getElementById("btnCloseDetails");
-
   const btnToggleLLM = document.getElementById("btnToggleLLM");
   const elModelBadge = document.getElementById("modelBadge");
   const elRunInfo = document.getElementById("runInfo");
-
   const btnReanalyze = document.getElementById("btnReanalyze");
 
-  // =========================
-  // Utilities
-  // =========================
+  const elRunDistribution = document.getElementById("runDistribution");
+
   function safeLocalStorageGet(key) {
     try { return localStorage.getItem(key); } catch { return null; }
   }
@@ -64,33 +55,59 @@
     return Math.round(v * 100);
   }
 
+  function nowTime() {
+    const d = new Date();
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  // --- Run log (DOM based, always visible) ---
+  function runLogReset() {
+    if (!elRunDistribution) return;
+    elRunDistribution.innerHTML = "";
+    elRunDistribution.style.whiteSpace = "normal";
+  }
+
+  function runLogAppend(line) {
+    if (!elRunDistribution) {
+      console.warn("runDistribution element missing, cannot log:", line);
+      return;
+    }
+    const div = document.createElement("div");
+    div.className = "muted";
+    div.style.padding = "2px 0";
+    div.textContent = line;
+    elRunDistribution.appendChild(div);
+    elRunDistribution.scrollTop = elRunDistribution.scrollHeight;
+  }
+
   function setLoading(isLoading, msg) {
     if (btnReanalyze) btnReanalyze.disabled = isLoading;
 
-    // Show lightweight status in runInfo (top right)
     if (elRunInfo) {
-      if (isLoading) {
-        elRunInfo.textContent = msg || "Analysiere…";
-      } else {
-        // keep whatever renderSummary puts there; do nothing here
-      }
+      if (isLoading) elRunInfo.textContent = msg || "Analyzing…";
     }
 
-    // Optional: show a simple placeholder in center/left while loading
     if (isLoading) {
-      if (elTbody) elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analysiere…</td></tr>`;
-      if (elSpeechPanel) {
-        elSpeechPanel.innerHTML = `<div class="muted">Analysiere…</div>`;
-      }
+      runLogReset();
+      runLogAppend(`[${nowTime()}] Starting analysis…`);
+
+      if (elTbody) elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analyzing…</td></tr>`;
+      if (elSpeechPanel) elSpeechPanel.innerHTML = `<div class="muted">Analyzing…</div>`;
       renderDetails(null);
     }
   }
 
-  async function fetchAnalysisFromBackend(text, enableCompare) {
-    const resp = await fetch("/api/analyze/", {
+  function getCompareFlag() {
+    return safeLocalStorageGet(COMPARE_KEY) === "1";
+  }
+
+  // =========================
+  // Streaming NDJSON
+  // =========================
+  async function streamAnalysisFromBackend(text, enableCompare) {
+    const resp = await fetch("/api/analyze_stream/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Django proxy expects: {text, enable_compare}
       body: JSON.stringify({ text, enable_compare: !!enableCompare }),
     });
 
@@ -100,7 +117,60 @@
       throw new Error(`Backend error ${resp.status}: ${detail || resp.statusText}`);
     }
 
-    return await resp.json(); // expected: { analyses: { gpt: ..., gemini?: ... } }
+    if (!resp.body) {
+      throw new Error("Streaming not supported by this browser/response.");
+    }
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let finalPayload = null;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+
+        if (!line) continue;
+
+        let msg;
+        try {
+          msg = JSON.parse(line);
+        } catch {
+          runLogAppend(`[${nowTime()}] (warning) Non-JSON: ${line.slice(0, 120)}`);
+          continue;
+        }
+
+        if (msg.type === "run_done") {
+          const model = (msg.model || "gpt").toUpperCase();
+          const run = Number(msg.run || 0);
+          const score = (typeof msg.overall_score === "number") ? msg.overall_score : "—";
+          const note = msg.note ? ` (${msg.note})` : "";
+          runLogAppend(`[${nowTime()}] Run ${run} done (${model}) · score: ${score}/100${note}`);
+        } else if (msg.type === "progress") {
+          runLogAppend(`[${nowTime()}] ${msg.message || "Progress…"} `);
+        } else if (msg.type === "final") {
+          finalPayload = msg;
+          runLogAppend(`[${nowTime()}] Final aggregation done.`);
+        } else if (msg.type === "error") {
+          throw new Error(msg.message || "Backend streaming error.");
+        } else {
+          runLogAppend(`[${nowTime()}] (info) ${line.slice(0, 120)}`);
+        }
+      }
+    }
+
+    if (!finalPayload || !finalPayload.analyses) {
+      throw new Error("Streaming finished but no final payload was received.");
+    }
+
+    return finalPayload;
   }
 
   // =========================
@@ -113,7 +183,7 @@
 
     const items = Array.isArray(analysis.items) ? analysis.items : [];
     const found = items.filter(x => x && x.present).length;
-    if (elSummaryFound) elSummaryFound.textContent = `${found} von ${items.length}`;
+    if (elSummaryFound) elSummaryFound.textContent = `${found} of ${items.length}`;
 
     const cons = analysis.meta?.consistency;
     if (elSummaryConsistency) {
@@ -124,20 +194,17 @@
     const st = analysis.meta?.setup;
     if (elSummarySetup) {
       elSummarySetup.textContent = st
-        ? `${st.clts} verbale CLTs · ${st.llm_runs} LLM-Runs · ${st.mode}`
+        ? `${st.clts} verbal CLTs · ${st.llm_runs} LLM runs · ${st.mode}`
         : "—";
     }
 
-    // runInfo: show actual model name if present (optional)
     const modeStr = analysis.meta?.setup?.mode || "";
     if (elRunInfo) elRunInfo.textContent = modeStr ? `Model: ${modeStr}` : "—";
   }
 
   function renderStrengthPips(strength, max = 3) {
     const p = [];
-    for (let i = 1; i <= max; i++) {
-      p.push(`<span class="pip ${i <= strength ? "on" : "off"}"></span>`);
-    }
+    for (let i = 1; i <= max; i++) p.push(`<span class="pip ${i <= strength ? "on" : "off"}"></span>`);
     return `<span class="pips">${p.join("")}</span> <span class="muted">${strength}/${max}</span>`;
   }
 
@@ -158,7 +225,7 @@
         <td style="font-weight:800;">${check}</td>
         <td><div class="strength">${renderStrengthPips(it.strength, 3)}</div></td>
         <td style="font-weight:700;">${confPct} %</td>
-        <td><span class="badge">Öffnen</span></td>
+        <td><span class="badge">Open</span></td>
       `;
 
       tr.addEventListener("click", () => onSelect(it.clt_id));
@@ -168,16 +235,12 @@
 
   function renderSpeechPanel(text, analysis, selectedCltId) {
     if (!elSpeechPanel) return;
-
     const sentences = splitSentences(text);
-
-    // Evidence map: clt_id -> quotes[]
-    const evidMap = new Map();
     const items = Array.isArray(analysis.items) ? analysis.items : [];
+
+    const evidMap = new Map();
     items.forEach(it => {
-      const quotes = (it.evidence || [])
-        .map(e => (e && e.quote ? String(e.quote).trim() : ""))
-        .filter(Boolean);
+      const quotes = (it.evidence || []).map(e => (e && e.quote ? String(e.quote).trim() : "")).filter(Boolean);
       evidMap.set(it.clt_id, quotes);
     });
 
@@ -203,11 +266,11 @@
 
       const div = document.createElement("div");
       div.className = "sentence";
-      div.innerHTML = `<small>Satz ${idx + 1}</small>${html}`;
+      div.innerHTML = `<small>Sentence ${idx + 1}</small>${html}`;
 
       if (selectedCltId && div.querySelector(`[data-clt="${selectedCltId}"]`)) {
-        div.style.borderColor = "rgba(106,167,255,35)";
-        div.style.background = "rgba(106,167,255,05)";
+        div.style.borderColor = "rgba(106,167,255,.35)";
+        div.style.background = "rgba(106,167,255,.05)";
       }
 
       div.addEventListener("click", (ev) => {
@@ -221,9 +284,7 @@
       elSpeechPanel.appendChild(div);
     });
 
-    if (!sentences.length) {
-      elSpeechPanel.innerHTML = `<div class="muted">Kein Text gefunden (Step 1).</div>`;
-    }
+    if (!sentences.length) elSpeechPanel.innerHTML = `<div class="muted">No text found (Step 1).</div>`;
   }
 
   function renderDetails(item) {
@@ -232,28 +293,28 @@
     if (!item) {
       elDetailPanel.dataset.open = "false";
       elDetailTitle.textContent = "Details";
-      elDetailMeta.textContent = "Wähle eine CLT aus.";
-      elDetailBody.innerHTML = `<div class="muted">Noch keine Auswahl.</div>`;
+      elDetailMeta.textContent = "Select a CLT.";
+      elDetailBody.innerHTML = `<div class="muted">No selection yet.</div>`;
       return;
     }
 
     elDetailPanel.dataset.open = "true";
     elDetailTitle.textContent = item.label;
-    elDetailMeta.textContent = `Stärke: ${item.strength}/3 · Vertrauen: ${Number(item.confidence || 0).toFixed(2)}`;
+    elDetailMeta.textContent = `Strength: ${item.strength}/3 · Confidence: ${Number(item.confidence || 0).toFixed(2)}`;
 
     const ev = (item.evidence || []).map(e => e?.quote).filter(Boolean);
     const evHtml = ev.length
-      ? `<ul>${ev.map(q => `<li><span class="badge">Evidenz</span> <span class="muted">„${escapeHtml(q)}“</span></li>`).join("")}</ul>`
-      : `<div class="muted">Keine Evidenz (kein Treffer).</div>`;
+      ? `<ul>${ev.map(q => `<li><span class="badge">Evidence</span> <span class="muted">“${escapeHtml(q)}”</span></li>`).join("")}</ul>`
+      : `<div class="muted">No evidence (no hit).</div>`;
 
     elDetailBody.innerHTML = `
       <details open class="card" style="padding:10px; margin-bottom:10px;">
-        <summary style="cursor:pointer; font-weight:700;">Evidenz</summary>
+        <summary style="cursor:pointer; font-weight:700;">Evidence</summary>
         <div style="margin-top:8px;">${evHtml}</div>
       </details>
 
       <details open class="card" style="padding:10px; margin-bottom:10px;">
-        <summary style="cursor:pointer; font-weight:700;">Begründung</summary>
+        <summary style="cursor:pointer; font-weight:700;">Rationale</summary>
         <div class="muted" style="margin-top:8px;">${escapeHtml(item.rationale_short || "—")}</div>
       </details>
 
@@ -264,9 +325,6 @@
     `;
   }
 
-  // =========================
-  // State
-  // =========================
   let STATE = {
     text: "",
     activeModel: "gpt",
@@ -317,9 +375,7 @@
 
     if (btnToggleLLM) {
       btnToggleLLM.dataset.active = model;
-      btnToggleLLM.textContent = (model === "gpt")
-        ? "LLM auswählen: Gemini"
-        : "LLM auswählen: GPT";
+      btnToggleLLM.textContent = (model === "gpt") ? "Select LLM: Gemini" : "Select LLM: GPT";
     }
 
     STATE.selected = null;
@@ -328,76 +384,56 @@
     renderAll();
   }
 
-  function getCompareFlag() {
-    return safeLocalStorageGet(COMPARE_KEY) === "1";
-  }
-
   function showError(err) {
     const msg = (err && err.message) ? err.message : String(err);
 
     if (elSummaryScore) elSummaryScore.textContent = "—";
     if (elSummaryFound) elSummaryFound.textContent = "—";
     if (elSummaryConsistency) elSummaryConsistency.textContent = "—";
-    if (elSummarySetup) elSummarySetup.textContent = "Backend-Fehler";
+    if (elSummarySetup) elSummarySetup.textContent = "Backend error";
 
     if (elRunInfo) elRunInfo.textContent = "—";
 
-    if (elTbody) {
-      elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analyse fehlgeschlagen: ${escapeHtml(msg)}</td></tr>`;
-    }
+    runLogAppend(`[${nowTime()}] ERROR: ${msg}`);
 
-    if (elSpeechPanel) {
-      elSpeechPanel.innerHTML = `<div class="muted">Analyse fehlgeschlagen: ${escapeHtml(msg)}</div>`;
-    }
+    if (elTbody) elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analysis failed: ${escapeHtml(msg)}</td></tr>`;
+    if (elSpeechPanel) elSpeechPanel.innerHTML = `<div class="muted">Analysis failed: ${escapeHtml(msg)}</div>`;
 
-    if (btnToggleLLM) btnToggleLLM.style.display = "none";
     renderDetails(null);
   }
 
   async function runAnalysis() {
     const text = safeLocalStorageGet(TEXT_KEY) || "";
     STATE.text = text;
-
     const enableCompare = getCompareFlag();
 
-    // Optional: if you inject results server-side later, we still accept them
-    // but backend call is the default path.
-    const injectedGpt = window.RESULT_GPT || null;
-    const injectedGemini = window.RESULT_GEMINI || null;
-
-    setLoading(true, "Analysiere…");
+    setLoading(true, "Analyzing…");
 
     try {
-      // If server injected results are present, use them immediately
-      if (injectedGpt) {
-        STATE.analyses.gpt = injectedGpt;
-        STATE.analyses.gemini = injectedGemini || null;
-      } else {
-        const data = await fetchAnalysisFromBackend(text, enableCompare);
-        STATE.analyses.gpt = data?.analyses?.gpt || null;
-        STATE.analyses.gemini = data?.analyses?.gemini || null;
+      const final = await streamAnalysisFromBackend(text, enableCompare);
+
+      STATE.analyses.gpt = final?.analyses?.gpt || null;
+      STATE.analyses.gemini = final?.analyses?.gemini || null;
+
+      if (btnToggleLLM) {
+        if (!STATE.analyses.gemini) {
+          btnToggleLLM.disabled = true;
+          btnToggleLLM.textContent = "Select LLM: Gemini (not available)";
+        } else {
+          btnToggleLLM.disabled = false;
+        }
       }
 
-      // Toggle button visibility
-      if (!STATE.analyses.gemini) {
-        if (btnToggleLLM) btnToggleLLM.style.display = "none";
-      } else {
-        if (btnToggleLLM) btnToggleLLM.style.display = "";
-      }
-
-      // Default model
       setActiveModel("gpt");
       renderDetails(null);
 
-      // Enable reanalyze now that first run succeeded
       if (btnReanalyze) btnReanalyze.disabled = false;
 
-      // Attach toggle handler once
-      if (btnToggleLLM && STATE.analyses.gemini && !btnToggleLLM.dataset.bound) {
+      if (btnToggleLLM && !btnToggleLLM.dataset.bound) {
         btnToggleLLM.dataset.bound = "1";
         btnToggleLLM.addEventListener("click", () => {
           const next = (STATE.activeModel === "gpt") ? "gemini" : "gpt";
-          setActiveModel(next);
+          if (STATE.analyses[next]) setActiveModel(next);
         });
       }
     } catch (err) {
@@ -408,9 +444,6 @@
     }
   }
 
-  // =========================
-  // Events
-  // =========================
   if (btnCloseDetails) {
     btnCloseDetails.addEventListener("click", () => {
       STATE.selected = null;
@@ -427,11 +460,6 @@
     });
   }
 
-  // =========================
-  // Init
-  // =========================
-  // Keep default disabled until first successful run
   if (btnReanalyze) btnReanalyze.disabled = true;
-
   runAnalysis();
 })();

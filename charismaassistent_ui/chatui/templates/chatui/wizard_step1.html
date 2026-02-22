@@ -6,13 +6,15 @@
 {% block content %}
 <section class="card">
   <header class="card__header">
-    <h2>Analyse-Wizard</h2>
-    <small class="muted">Step 1/2 · Redetext eingeben</small>
+    <h2>Analysis Wizard</h2>
+    <small class="muted">Step 1/2 · Enter speech text</small>
   </header>
 
   <div class="steps" aria-label="Wizard Steps">
     <div class="step"><span>1</span> Text</div>
-    <div class="step muted" style="opacity:.7"><span style="background:rgba(255,255,255,.15);color:var(--text)">2</span> Analyse</div>
+    <div class="step muted" style="opacity:.7">
+      <span style="background:rgba(255,255,255,.15);color:var(--text)">2</span> Analysis
+    </div>
   </div>
 
   <div class="two-col">
@@ -21,45 +23,44 @@
       <div class="card" style="padding:12px;">
         <div class="row" style="justify-content:space-between; gap:12px;">
           <div>
-            <h3 style="margin:0 0 4px 0;">Redetext</h3>
-            <small class="muted">Füge den zu analysierenden Text ein (nur verbal, textbasiert).</small>
+            <h3 style="margin:0 0 4px 0;">Speech text</h3>
+            <small class="muted">Paste the text to analyze (verbal CLTs only; text-based).</small>
           </div>
-          <span class="badge" id="counter">0 Wörter · 0 Zeichen</span>
+          <span class="badge" id="counter">0 words · 0 chars</span>
         </div>
 
         <div style="margin-top:10px;">
           <textarea
             id="speechText"
             class="input"
-            placeholder="Hier den Redetext einfügen…"
+            placeholder="Paste the speech text here…"
             style="width:100%; min-height:260px;"
           ></textarea>
         </div>
 
         <div class="row" style="margin-top:10px;">
-  <label class="row" style="gap:8px; cursor:pointer;">
-    <input type="checkbox" id="enableCompare" />
-    <span>Vergleichsmodell aktivieren (Gemini)</span>
-  </label>
-  <span class="muted">Führt eine zweite Analyse mit einem anderen LLM aus.</span>
-</div>
-
+          <label class="row" style="gap:8px; cursor:pointer;">
+            <input type="checkbox" id="enableCompare" />
+            <span>Enable comparison model (Gemini)</span>
+          </label>
+          <span class="muted">Runs a second analysis with a different LLM.</span>
+        </div>
 
         <div class="row" style="margin-top:10px; justify-content:space-between;">
           <div class="row">
-            <button type="button" class="btn btn-ghost" id="btnClear">Leeren</button>
-            <button type="button" class="btn btn-dark" id="btnExample">Beispieltext</button>
+            <button type="button" class="btn btn-ghost" id="btnClear">Clear</button>
+            <button type="button" class="btn btn-dark" id="btnExample">Example text</button>
           </div>
 
           <div class="row">
             <button type="button" class="btn btn-okay" id="btnNext" disabled>
-              Weiter → Step 2
+              Next → Step 2
             </button>
           </div>
         </div>
 
         <p class="muted" style="margin:10px 0 0 0;">
-          Hinweis: Der Text wird lokal gespeichert, damit Step 2 ihn automatisch übernehmen kann.
+          Note: The text is stored locally so Step 2 can load it automatically.
         </p>
       </div>
     </div>
@@ -68,31 +69,31 @@
     <div class="col-right sticky">
       <div class="preview-panel">
         <div class="preview-topic">
-          <h4>Live-Vorschau</h4>
+          <h4>Live preview</h4>
           <div class="muted" style="margin-bottom:8px;">
-            Auszug (erste ~600 Zeichen), so wie er später an das Backend geht.
+            Excerpt (first ~600 chars), exactly as it will be sent to the backend.
           </div>
           <div id="preview" class="result__text" style="min-height:140px;"></div>
         </div>
 
         <div class="preview-topic">
-          <h4>Analyse-Setup (Platzhalter)</h4>
+          <h4>Analysis setup (placeholder)</h4>
           <div class="preview-task">
             <div class="preview-task-title">CLTs</div>
-            <div class="preview-task-text muted">9 verbale Taktiken (Antonakis et al.)</div>
+            <div class="preview-task-text muted">9 verbal tactics (Antonakis et al.)</div>
           </div>
           <div class="preview-task">
             <div class="preview-task-title">Ensemble</div>
-            <div class="preview-task-text muted">wird in Step 2 konfigurierbar</div>
+            <div class="preview-task-text muted">configurable in Step 2</div>
           </div>
           <div class="preview-task">
             <div class="preview-task-title">Output</div>
-            <div class="preview-task-text muted">validiertes JSON (Scorecards + Evidenzen)</div>
+            <div class="preview-task-text muted">validated JSON (scorecards + evidence)</div>
           </div>
         </div>
 
         <div class="row" style="margin-top:12px;">
-          <a class="btn btn-ghost" href="{% url 'chat' %}">← Zurück zum Chat</a>
+          <a class="btn btn-ghost" href="{% url 'chat' %}">← Back to chat</a>
         </div>
       </div>
     </div>
@@ -101,5 +102,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{% static 'chatui/wizard_step1.js' %}?v=20260208-1"></script>
+<script defer src="{% static 'chatui/wizard_step1.js' %}?v=20260222-EN-1"></script>
 {% endblock %}
