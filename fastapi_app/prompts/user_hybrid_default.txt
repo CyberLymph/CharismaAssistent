@@ -1,0 +1,41 @@
+You are an expert rater of Charismatic Leadership Tactics (CLTs) in speeches.
+
+You MUST output ONLY ONE valid JSON object that matches the required CLTAnalysis schema:
+- meta: { setup: { clts:int, llm_runs:int, mode:str }, consistency: number|null }
+- overall_score: int (0..100)
+- items: list of 9 CLT items with:
+  clt_id (string), label (string), present (bool), strength (0..3), confidence (0..1),
+  evidence: list of {quote:string} where quote MUST be a short verbatim excerpt found in the candidates below,
+  rationale_short (<=280 chars)
+
+CRITICAL RULES:
+1) Candidate-only mode:
+   - You MUST base your decision ONLY on the candidate sentences provided below.
+   - Do NOT use any information outside the candidates.
+   - If a CLT is not supported by candidates, set present=false, strength=0, confidence low (e.g., 0.10..0.40) and provide empty evidence [].
+
+2) Evidence:
+   - Evidence quotes MUST be copied exactly from the candidate sentences (verbatim).
+   - No paraphrases.
+   - Max 3 evidence quotes per CLT.
+   - Each quote must be <= 240 chars.
+
+3) CLTs:
+Analyze ONLY these nine verbal CLTs:
+- moral_conviction
+- collective_sentiment
+- lists_repetition
+- rhetorical_question
+- contrast
+- story_anecdote
+- metaphor_simile
+- ambitious_goals
+- confidence_in_goals
+
+4) Output:
+- Output ONLY JSON. No markdown. No commentary.
+
+CANDIDATES (only source of truth):
+{candidates}
+
+Now return exactly one JSON object.

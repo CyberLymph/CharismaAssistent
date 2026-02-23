@@ -24,7 +24,7 @@
         <div class="row" style="justify-content:space-between; gap:12px;">
           <div>
             <h3 style="margin:0 0 4px 0;">Speech text</h3>
-            <small class="muted">Paste the text to analyze (verbal CLTs only; text-based).</small>
+            <small class="muted">Paste the text to analyze (English speeches; verbal CLTs only).</small>
           </div>
           <span class="badge" id="counter">0 words · 0 chars</span>
         </div>
@@ -44,6 +44,15 @@
             <span>Enable comparison model (Gemini)</span>
           </label>
           <span class="muted">Runs a second analysis with a different LLM.</span>
+        </div>
+
+        <!-- NEW: Hybrid option -->
+        <div class="row" style="margin-top:10px;">
+          <label class="row" style="gap:8px; cursor:pointer;">
+            <input type="checkbox" id="enableHybrid" />
+            <span>Enable hybrid mode (candidate-only)</span>
+          </label>
+          <span class="muted">Uses rule-based candidates; Step 2 shows live run progress.</span>
         </div>
 
         <div class="row" style="margin-top:10px; justify-content:space-between;">
@@ -77,18 +86,18 @@
         </div>
 
         <div class="preview-topic">
-          <h4>Analysis setup (placeholder)</h4>
+          <h4>Analysis setup</h4>
           <div class="preview-task">
             <div class="preview-task-title">CLTs</div>
             <div class="preview-task-text muted">9 verbal tactics (Antonakis et al.)</div>
           </div>
           <div class="preview-task">
             <div class="preview-task-title">Ensemble</div>
-            <div class="preview-task-text muted">configurable in Step 2</div>
+            <div class="preview-task-text muted">3 LLM runs (aggregation)</div>
           </div>
           <div class="preview-task">
-            <div class="preview-task-title">Output</div>
-            <div class="preview-task-text muted">validated JSON (scorecards + evidence)</div>
+            <div class="preview-task-title">Hybrid mode</div>
+            <div class="preview-task-text muted">Candidate-only input to LLM (optional)</div>
           </div>
         </div>
 
@@ -102,5 +111,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{% static 'chatui/wizard_step1.js' %}?v=20260222-EN-1"></script>
+<script defer src="{% static 'chatui/wizard_step1.js' %}?v=20260223-EN-HYBRID-1"></script>
 {% endblock %}

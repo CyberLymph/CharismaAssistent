@@ -1,5 +1,8 @@
+// wizard_step1.js (EN + compare + hybrid)
 (function () {
-  const STORAGE_KEY = "charismaassistant:speechText:v1";
+  const TEXT_KEY = "charismaassistant:speechText:v1";
+  const COMPARE_KEY = "charismaassistant:enableCompare:v1";
+  const HYBRID_KEY = "charismaassistant:enableHybrid:v1";
 
   const elText = document.getElementById("speechText");
   const elPreview = document.getElementById("preview");
@@ -8,8 +11,17 @@
   const btnExample = document.getElementById("btnExample");
   const btnNext = document.getElementById("btnNext");
 
+  const elCompare = document.getElementById("enableCompare");
+  const elHybrid = document.getElementById("enableHybrid");
+
+  function safeGet(key) {
+    try { return localStorage.getItem(key); } catch { return null; }
+  }
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, value); } catch {}
+  }
+
   function wordCount(text) {
-    // Count words in a robust way (trim + split on whitespace)
     const t = (text || "").trim();
     if (!t) return 0;
     return t.split(/\s+/).length;
@@ -20,80 +32,72 @@
     const words = wordCount(text);
     const chars = text.length;
 
-    elCounter.textContent = `${words} Wörter · ${chars} Zeichen`;
-    elPreview.textContent = (text.trim() ? text.slice(0, 600) : "—");
+    if (elCounter) elCounter.textContent = `${words} words · ${chars} chars`;
+    if (elPreview) elPreview.textContent = (text.trim() ? text.slice(0, 600) : "—");
 
-    // Enable next only when meaningful text exists
-    btnNext.disabled = words < 3; // small threshold to avoid empty submits
+    if (btnNext) btnNext.disabled = words < 3;
 
-    // Persist for Step 2
-    try {
-      localStorage.setItem(STORAGE_KEY, text);
-    } catch (e) {
-      // ignore if storage blocked
+    safeSet(TEXT_KEY, text);
+  }
+
+  function loadFlags() {
+    if (elCompare) elCompare.checked = safeGet(COMPARE_KEY) === "1";
+    if (elHybrid) elHybrid.checked = safeGet(HYBRID_KEY) === "1";
+  }
+
+  function bindFlags() {
+    if (elCompare) {
+      elCompare.addEventListener("change", () => {
+        safeSet(COMPARE_KEY, elCompare.checked ? "1" : "0");
+      });
+    }
+    if (elHybrid) {
+      elHybrid.addEventListener("change", () => {
+        safeSet(HYBRID_KEY, elHybrid.checked ? "1" : "0");
+      });
     }
   }
 
   function loadFromStorage() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && !elText.value) {
-        elText.value = saved;
-      }
-    } catch (e) {}
+    const saved = safeGet(TEXT_KEY);
+    if (saved && elText && !elText.value) elText.value = saved;
     updateUI();
   }
 
-  btnClear.addEventListener("click", () => {
-    elText.value = "";
-    updateUI();
-    elText.focus();
-  });
+  if (btnClear) {
+    btnClear.addEventListener("click", () => {
+      elText.value = "";
+      updateUI();
+      elText.focus();
+    });
+  }
 
-  btnExample.addEventListener("click", () => {
-    const sample =
-`Liebe Kolleginnen und Kollegen,
-wir stehen heute an einem Wendepunkt. Werden wir zuschauen – oder gestalten?
-Ich verspreche Ihnen: Wir werden dieses Land nicht nur verwalten, wir werden es erneuern.
+  if (btnExample) {
+    btnExample.addEventListener("click", () => {
+      const sample =
+`My friends, today we stand at the edge of history. The question before us is simple: will we accept the limits others have placed upon us, or will we rise beyond them?
+For years, families have worked hard, played by the rules, and still been denied the dignity they deserve.
+We are not divided strangers. We are one people. One voice. One destiny. And together, together, together — we will not be ignored.
+Some say change is impossible. But I say injustice is impossible to ignore.
+This moment is a spark in the darkness. It is the sunrise after a long night.
+We will build schools that inspire. We will create jobs that sustain. We will restore dignity where it has been denied.
+And we will succeed — because we believe in our cause, because we believe in each other, and because we know that history bends toward those who refuse to surrender.`;
 
-Wenn wir mutig sind, gewinnen wir Vertrauen. Wenn wir zögern, verlieren wir Zeit.
-Nicht irgendwann. Nicht später. Jetzt.
+      elText.value = sample;
+      updateUI();
+      elText.focus();
+    });
+  }
 
-Ich frage Sie: Wollen wir eine Zukunft, die uns passiert – oder eine Zukunft, die wir möglich machen?
-Gemeinsam werden wir zeigen, dass Fortschritt nicht Angst macht, sondern Hoffnung gibt.`;
+  if (elText) elText.addEventListener("input", updateUI);
 
-    elText.value = sample;
-    updateUI();
-    elText.focus();
-  });
+  if (btnNext) {
+    btnNext.addEventListener("click", () => {
+      window.location.href = "/wizard/step-2/";
+    });
+  }
 
-  elText.addEventListener("input", updateUI);
-
-  btnNext.addEventListener("click", () => {
-    // Later: navigate to Step 2 (analysis page)
-    // For now, keep it simple: go to future route placeholder.
-    // You can implement wizard_step2 URL next and update this link.
-    window.location.href = "/wizard/step-2/";
-  });
-
+  loadFlags();
+  bindFlags();
   loadFromStorage();
 })();
-const COMPARE_KEY = "charismaassistant:enableCompare:v1";
-const elCompare = document.getElementById("enableCompare");
-
-function loadCompare() {
-  try {
-    const v = localStorage.getItem(COMPARE_KEY);
-    elCompare.checked = v === "1";
-  } catch {}
-}
-
-elCompare.addEventListener("change", () => {
-  try {
-    localStorage.setItem(COMPARE_KEY, elCompare.checked ? "1" : "0");
-  } catch {}
-});
-
-// beim Init:
-loadCompare();
-

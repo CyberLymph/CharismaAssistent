@@ -1,20 +1,18 @@
-# --- Standardbibliotheken ---
+# --- Standard library ---
 import json
 import requests
 
-# --- Django Framework ---
+# --- Django ---
 from django.conf import settings
-from django.http import JsonResponse , StreamingHttpResponse
+from django.http import JsonResponse, StreamingHttpResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
-
-
+from django.views.decorators.csrf import csrf_exempt
 
 
 FASTAPI_BASE = getattr(settings, "FASTAPI_BASE", "http://localhost:8000")
-FASTAPI_URL = "http://localhost:8000/analyze"  # später docker-intern anpassen
-FASTAPI_URL_STREAM = "http://localhost:8000/analyze_stream"  # FastAPI streaming endpoint
+FASTAPI_URL = f"{FASTAPI_BASE}/analyze"
+FASTAPI_STREAM_URL = f"{FASTAPI_BASE}/analyze_stream"
 
 
 def chat_page(request):
@@ -33,6 +31,7 @@ def wizard_step2(request):
 @csrf_exempt
 def analyze_proxy(request):
     payload = json.loads(request.body.decode("utf-8"))
+    # expected payload: { "text": "...", "enable_compare": bool, "use_hybrid": bool }
     try:
         r = requests.post(FASTAPI_URL, json=payload, timeout=120)
         return JsonResponse(r.json(), status=r.status_code, safe=False)
@@ -44,46 +43,49 @@ def analyze_proxy(request):
 @csrf_exempt
 def analyze_stream_proxy(request):
     """
-    Proxies FastAPI /analyze_stream NDJSON stream to the browser.
-    Frontend expects `application/x-ndjson` (one JSON object per line).
+    Proxies FastAPI NDJSON streaming endpoint 1:1 to the browser.
+    Important: keep it StreamingHttpResponse (do NOT buffer).
     """
     payload = json.loads(request.body.decode("utf-8"))
 
-    try:
-        upstream = requests.post(
-            FASTAPI_URL_STREAM,
-            json=payload,
-            stream=True,       # IMPORTANT: keep stream
-            timeout=300,
-        )
+    def gen():
+        try:
+            with requests.post(
+                FASTAPI_STREAM_URL,
+                json=payload,
+                stream=True,
+                timeout=300,
+            ) as r:
+                # If FastAPI returns an error, still return NDJSON error to the UI
+                if r.status_code != 200:
+                    try:
+                        detail = r.text
+                    except Exception:
+                        detail = ""
+                    err = {
+                        "type": "error",
+                        "message": f"backend_error_{r.status_code}: {detail[:300]}",
+                    }
+                    yield (json.dumps(err) + "\n").encode("utf-8")
+                    return
 
-        # Pass through status if upstream fails quickly
-        if upstream.status_code >= 400:
-            try:
-                err_text = upstream.text
-            except Exception:
-                err_text = "Upstream error"
-            return JsonResponse(
-                {"error": "upstream_error", "status": upstream.status_code, "detail": err_text[:500]},
-                status=502,
-            )
+                # Stream NDJSON as BYTES, robust to str/bytes from requests
+                for line in r.iter_lines():
+                    if not line:
+                        continue
 
-        def gen():
-            # iter_lines keeps line boundaries; decode_unicode gives str
-            for line in upstream.iter_lines(decode_unicode=True):
-                if line is None:
-                    continue
-                line = line.strip()
-                if not line:
-                    continue
-                # Ensure every line ends with newline for NDJSON parsing
-                yield (line + "\n")
+                    if isinstance(line, str):
+                        line = line.encode("utf-8")
 
-        resp = StreamingHttpResponse(gen(), content_type="application/x-ndjson; charset=utf-8")
-        # Disable buffering in common reverse proxies
-        resp["Cache-Control"] = "no-cache"
-        resp["X-Accel-Buffering"] = "no"  # nginx
-        return resp
+                    if not line.endswith(b"\n"):
+                        line += b"\n"
 
-    except requests.RequestException as e:
-        return JsonResponse({"error": "backend_unavailable", "detail": str(e)}, status=503)
+                    yield line
+
+        except requests.RequestException as e:
+            err = {"type": "error", "message": f"backend_unavailable: {str(e)}"}
+            yield (json.dumps(err) + "\n").encode("utf-8")
+
+    resp = StreamingHttpResponse(gen(), content_type="application/x-ndjson")
+    resp["Cache-Control"] = "no-cache"
+    return resp

@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 
 # -----------------------------
-# Type aliases (Pylance-friendly)
+# Type aliases
 # -----------------------------
 Strength = Annotated[int, Field(ge=0, le=3)]
 Confidence = Annotated[float, Field(ge=0.0, le=1.0)]
@@ -51,10 +51,14 @@ class CLTAnalysis(BaseModel):
 class AnalyzeRequest(BaseModel):
     text: str = Field(..., min_length=3)
     enable_compare: bool = False
-    # später:
-    # llm_runs: int = 1
-    # temperature: float = 0.2
+
+    # NEW: ensemble size (FastAPI uses this)
+    llm_runs: int = Field(default=3, ge=1, le=10)
+
+    # NEW: hybrid mode (candidate-only)
+    use_hybrid: bool = False
 
 
 class AnalyzeResponse(BaseModel):
+    # gemini is optional depending on enable_compare
     analyses: Dict[Literal["gpt", "gemini"], CLTAnalysis]

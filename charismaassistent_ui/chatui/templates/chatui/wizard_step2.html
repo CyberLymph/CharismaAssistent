@@ -39,10 +39,10 @@
           <span class="summary-value" id="summarySetup">—</span>
         </div>
 
-        <!-- NEW: Run distribution / live progress -->
-        <div style="margin-top:10px;">
+        <!-- Run distribution / live progress (ONLY for hybrid) -->
+        <div id="runDistributionWrap" style="margin-top:10px; display:none;">
           <div class="muted" style="margin-bottom:6px;">Run distribution (live):</div>
-          <div id="runDistribution" class="result__text" style="min-height:64px; max-height:120px; overflow:auto;"></div>
+          <div id="runDistribution" class="result__text" style="min-height:64px; max-height:140px; overflow:auto;"></div>
         </div>
       </div>
 
@@ -127,5 +127,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{% static 'chatui/wizard_step2.js' %}?v=20260222-EN-STREAM-1"></script>
+<script defer src="{% static 'chatui/wizard_step2.js' %}?v=20260223-EN-HYBRID-STREAM-2"></script>
 {% endblock %}

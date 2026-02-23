@@ -1,7 +1,8 @@
-// wizard_step2.js (EN + streamed run distribution) - ROBUST RUN LOG
+// wizard_step2.js (EN + HYBRID optional + streaming NDJSON)
 (function () {
   const TEXT_KEY = "charismaassistant:speechText:v1";
   const COMPARE_KEY = "charismaassistant:enableCompare:v1";
+  const HYBRID_KEY = "charismaassistant:enableHybrid:v1";
 
   const elSpeechPanel = document.getElementById("speechPanel");
   const elTbody = document.getElementById("scoreTbody");
@@ -22,6 +23,7 @@
   const elRunInfo = document.getElementById("runInfo");
   const btnReanalyze = document.getElementById("btnReanalyze");
 
+  const elRunDistributionWrap = document.getElementById("runDistributionWrap");
   const elRunDistribution = document.getElementById("runDistribution");
 
   function safeLocalStorageGet(key) {
@@ -60,18 +62,22 @@
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
-  // --- Run log (DOM based, always visible) ---
+  function getCompareFlag() {
+    return safeLocalStorageGet(COMPARE_KEY) === "1";
+  }
+
+  function getHybridFlag() {
+    return safeLocalStorageGet(HYBRID_KEY) === "1";
+  }
+
+  // --- Run log ---
   function runLogReset() {
     if (!elRunDistribution) return;
     elRunDistribution.innerHTML = "";
-    elRunDistribution.style.whiteSpace = "normal";
   }
 
   function runLogAppend(line) {
-    if (!elRunDistribution) {
-      console.warn("runDistribution element missing, cannot log:", line);
-      return;
-    }
+    if (!elRunDistribution) return;
     const div = document.createElement("div");
     div.className = "muted";
     div.style.padding = "2px 0";
@@ -80,35 +86,49 @@
     elRunDistribution.scrollTop = elRunDistribution.scrollHeight;
   }
 
+  function setRunBoxVisible(visible) {
+    if (!elRunDistributionWrap) return;
+    elRunDistributionWrap.style.display = visible ? "" : "none";
+    if (visible) {
+      // Ensure we have some initial content so it's not "empty"
+      if (elRunDistribution && elRunDistribution.children.length === 0) {
+        runLogAppend(`[${nowTime()}] Waiting for runs…`);
+      }
+    }
+  }
+
   function setLoading(isLoading, msg) {
     if (btnReanalyze) btnReanalyze.disabled = isLoading;
 
-    if (elRunInfo) {
-      if (isLoading) elRunInfo.textContent = msg || "Analyzing…";
+    if (elRunInfo && isLoading) {
+      elRunInfo.textContent = msg || "Analyzing…";
     }
 
     if (isLoading) {
-      runLogReset();
-      runLogAppend(`[${nowTime()}] Starting analysis…`);
-
       if (elTbody) elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analyzing…</td></tr>`;
       if (elSpeechPanel) elSpeechPanel.innerHTML = `<div class="muted">Analyzing…</div>`;
       renderDetails(null);
+
+      // If run box visible, reset it
+      if (getHybridFlag()) {
+        runLogReset();
+        runLogAppend(`[${nowTime()}] Starting hybrid analysis…`);
+      }
     }
   }
 
-  function getCompareFlag() {
-    return safeLocalStorageGet(COMPARE_KEY) === "1";
-  }
-
   // =========================
-  // Streaming NDJSON
+  // Backend calls
   // =========================
-  async function streamAnalysisFromBackend(text, enableCompare) {
-    const resp = await fetch("/api/analyze_stream/", {
+  async function fetchAnalysisFromBackend(text, enableCompare, useHybrid) {
+    const resp = await fetch("/api/analyze/", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, enable_compare: !!enableCompare }),
+      body: JSON.stringify({
+        text,
+        enable_compare: !!enableCompare,
+        use_hybrid: !!useHybrid
+      }),
     });
 
     if (!resp.ok) {
@@ -117,9 +137,27 @@
       throw new Error(`Backend error ${resp.status}: ${detail || resp.statusText}`);
     }
 
-    if (!resp.body) {
-      throw new Error("Streaming not supported by this browser/response.");
+    return await resp.json(); // { analyses: { gpt:..., gemini?:... } }
+  }
+
+  async function streamAnalysisFromBackend(text, enableCompare, useHybrid) {
+    const resp = await fetch("/api/analyze_stream/", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        enable_compare: !!enableCompare,
+        use_hybrid: !!useHybrid
+      }),
+    });
+
+    if (!resp.ok) {
+      let detail = "";
+      try { detail = await resp.text(); } catch {}
+      throw new Error(`Backend error ${resp.status}: ${detail || resp.statusText}`);
     }
+
+    if (!resp.body) throw new Error("Streaming not supported by this browser/response.");
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder("utf-8");
@@ -151,10 +189,9 @@
           const model = (msg.model || "gpt").toUpperCase();
           const run = Number(msg.run || 0);
           const score = (typeof msg.overall_score === "number") ? msg.overall_score : "—";
-          const note = msg.note ? ` (${msg.note})` : "";
-          runLogAppend(`[${nowTime()}] Run ${run} done (${model}) · score: ${score}/100${note}`);
+          runLogAppend(`[${nowTime()}] Run ${run} done (${model}) · score: ${score}/100`);
         } else if (msg.type === "progress") {
-          runLogAppend(`[${nowTime()}] ${msg.message || "Progress…"} `);
+          runLogAppend(`[${nowTime()}] ${msg.message || "Progress…"}`);
         } else if (msg.type === "final") {
           finalPayload = msg;
           runLogAppend(`[${nowTime()}] Final aggregation done.`);
@@ -170,7 +207,7 @@
       throw new Error("Streaming finished but no final payload was received.");
     }
 
-    return finalPayload;
+    return finalPayload; // { type:"final", analyses:{...} }
   }
 
   // =========================
@@ -235,12 +272,15 @@
 
   function renderSpeechPanel(text, analysis, selectedCltId) {
     if (!elSpeechPanel) return;
+
     const sentences = splitSentences(text);
     const items = Array.isArray(analysis.items) ? analysis.items : [];
 
     const evidMap = new Map();
     items.forEach(it => {
-      const quotes = (it.evidence || []).map(e => (e && e.quote ? String(e.quote).trim() : "")).filter(Boolean);
+      const quotes = (it.evidence || [])
+        .map(e => (e && e.quote ? String(e.quote).trim() : ""))
+        .filter(Boolean);
       evidMap.set(it.clt_id, quotes);
     });
 
@@ -391,10 +431,9 @@
     if (elSummaryFound) elSummaryFound.textContent = "—";
     if (elSummaryConsistency) elSummaryConsistency.textContent = "—";
     if (elSummarySetup) elSummarySetup.textContent = "Backend error";
-
     if (elRunInfo) elRunInfo.textContent = "—";
 
-    runLogAppend(`[${nowTime()}] ERROR: ${msg}`);
+    if (getHybridFlag()) runLogAppend(`[${nowTime()}] ERROR: ${msg}`);
 
     if (elTbody) elTbody.innerHTML = `<tr><td colspan="5" class="muted">Analysis failed: ${escapeHtml(msg)}</td></tr>`;
     if (elSpeechPanel) elSpeechPanel.innerHTML = `<div class="muted">Analysis failed: ${escapeHtml(msg)}</div>`;
@@ -405,15 +444,27 @@
   async function runAnalysis() {
     const text = safeLocalStorageGet(TEXT_KEY) || "";
     STATE.text = text;
-    const enableCompare = getCompareFlag();
 
-    setLoading(true, "Analyzing…");
+    const enableCompare = getCompareFlag();
+    const useHybrid = getHybridFlag();
+
+    // Show run box only in hybrid mode
+    setRunBoxVisible(!!useHybrid);
+
+    setLoading(true, useHybrid ? "Analyzing (hybrid)..." : "Analyzing...");
 
     try {
-      const final = await streamAnalysisFromBackend(text, enableCompare);
-
-      STATE.analyses.gpt = final?.analyses?.gpt || null;
-      STATE.analyses.gemini = final?.analyses?.gemini || null;
+      if (useHybrid) {
+        // Stream mode
+        const final = await streamAnalysisFromBackend(text, enableCompare, useHybrid);
+        STATE.analyses.gpt = final?.analyses?.gpt || null;
+        STATE.analyses.gemini = final?.analyses?.gemini || null;
+      } else {
+        // Non-stream mode
+        const data = await fetchAnalysisFromBackend(text, enableCompare, useHybrid);
+        STATE.analyses.gpt = data?.analyses?.gpt || null;
+        STATE.analyses.gemini = data?.analyses?.gemini || null;
+      }
 
       if (btnToggleLLM) {
         if (!STATE.analyses.gemini) {
