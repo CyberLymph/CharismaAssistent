@@ -51,11 +51,7 @@ class CLTAnalysis(BaseModel):
 class AnalyzeRequest(BaseModel):
     text: str = Field(..., min_length=3)
     enable_compare: bool = False
-
-    # NEW: ensemble size (FastAPI uses this)
     llm_runs: int = Field(default=3, ge=1, le=10)
-
-    # NEW: hybrid mode (candidate-only)
     use_hybrid: bool = False
 
 

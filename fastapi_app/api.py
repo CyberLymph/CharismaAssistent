@@ -304,18 +304,76 @@ def mock_analyze(text: str, model: str, llm_runs: int = 1, mode_tag: str = "Mock
     )
     return CLTAnalysis(meta=meta, overall_score=int(overall), items=items)
 
+
 # -----------------------------
 # Candidate extraction (English only)
 # -----------------------------
-_pat_rhet_q = re.compile(r"\?\s*$")
-_pat_contrast = re.compile(r"\b(but|yet|however|instead|rather than|on the one hand|on the other hand)\b", re.I)
-_pat_lists = re.compile(r"\b(first|second|third|finally)\b|[,;].+[,;].+", re.I)
-_pat_collective = re.compile(r"\b(we|our|us|together|as one|people|nation|community)\b", re.I)
-_pat_moral = re.compile(r"\b(should|must|right|wrong|justice|unjust|moral|duty|responsibility)\b", re.I)
-_pat_story = re.compile(r"\b(i remember|i met|once|when i|last week|years ago|one day)\b", re.I)
-_pat_metaphor = re.compile(r"\b(like|as if|as though)\b|(\bis\b\s+a\b\s+\w+)", re.I)
-_pat_goals = re.compile(r"\b(will|we will|let us|we must)\b.*\b(build|create|achieve|reach|win|deliver|transform)\b", re.I)
-_pat_conf = re.compile(r"\b(i am sure|we can|we will|certain|undeniable|no doubt|inevitable)\b", re.I)
+
+# Rhetorical question (sentence ending or embedded question mark)
+_pat_rhet_q = re.compile(r"\?\s*$|\?\s+[A-Z]", re.I)
+
+# Contrast (extended connectors)
+_pat_contrast = re.compile(
+    r"\b(but|yet|however|instead|rather than|on the one hand|on the other hand|"
+    r"while|whereas|nevertheless|nonetheless|in contrast|as opposed to)\b",
+    re.I
+)
+
+# Lists / structured emphasis
+_pat_lists = re.compile(
+    r"\b(first|second|third|fourth|finally|lastly|moreover|furthermore)\b|[,;].+[,;].+",
+    re.I
+)
+
+# Collective sentiment (expanded shared identity markers)
+_pat_collective = re.compile(
+    r"\b(we|our|us|together|as one|people|nation|community|"
+    r"citizens|all of us|each of us|every one of us)\b",
+    re.I
+)
+
+# Moral conviction (expanded but controlled English lexicon)
+_pat_moral = re.compile(
+    r"\b("
+    r"moral|immoral|ethical|unethical|ethics|virtue|values?|principles?|integrity|"
+    r"justice|injustice|unjust|fair(ness)?|equality|equity|rights?|dignity|"
+    r"duty|responsibilit(y|ies)|obligation(s)?|"
+    r"right|wrong|"
+    r"unacceptable|intolerable|must\s+not|cannot\s+allow|can't\s+allow"
+    r")\b",
+    re.I
+)
+
+# Story / anecdote (expanded narrative triggers)
+_pat_story = re.compile(
+    r"\b(i remember|i met|once|when i|last week|years ago|one day|"
+    r"there was a time|i recall|let me tell you|i once)\b",
+    re.I
+)
+
+# Metaphor / simile (kept cautious)
+_pat_metaphor = re.compile(
+    r"\b(like|as if|as though)\b|(\bis\b\s+(a|an)\s+\w+)",
+    re.I
+)
+
+# Ambitious goals (broader transformative verbs)
+_pat_goals = re.compile(
+    r"\b(will|we will|let us|we must)\b.*\b("
+    r"build|create|achieve|reach|win|deliver|transform|"
+    r"change|reform|reshape|redefine|advance|lead|"
+    r"rebuild|strengthen|protect|secure"
+    r")\b",
+    re.I
+)
+
+# Confidence in goals (expanded certainty markers)
+_pat_conf = re.compile(
+    r"\b(i am sure|we can|we will|certain|undeniable|no doubt|inevitable|"
+    r"confident|we are confident|there is no doubt|without doubt|"
+    r"guarantee|assured)\b",
+    re.I
+)
 
 def split_sentences(text: str) -> List[str]:
     t = (text or "").strip()
@@ -692,9 +750,9 @@ def aggregate_runs(model_name: str, runs: List[CLTAnalysis], use_hybrid: bool) -
         present = true_count > (len(presents) / 2) if presents else False
 
         strength_avg = round(sum(strengths) / max(1, len(strengths))) if strengths else 0
-        confidence_avg = (sum(confidences) / max(1, len(confidences))) if confidences else 0.0
-
         strength = _clamp_int(strength_avg, 0, 3)
+
+        confidence_avg = (sum(confidences) / max(1, len(confidences))) if confidences else 0.0
         confidence = _clamp_float(confidence_avg, 0.0, 1.0)
 
         uniq: List[str] = []

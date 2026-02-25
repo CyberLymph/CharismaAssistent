@@ -1,41 +1,90 @@
-You are an expert rater of Charismatic Leadership Tactics (CLTs) in speeches.
+You are an expert rater of Charismatic Leadership Tactics (CLTs).
 
-You MUST output ONLY ONE valid JSON object that matches the required CLTAnalysis schema:
-- meta: { setup: { clts:int, llm_runs:int, mode:str }, consistency: number|null }
-- overall_score: int (0..100)
-- items: list of 9 CLT items with:
-  clt_id (string), label (string), present (bool), strength (0..3), confidence (0..1),
-  evidence: list of {quote:string} where quote MUST be a short verbatim excerpt found in the candidates below,
-  rationale_short (<=280 chars)
+You MUST output EXACTLY ONE valid JSON object that matches the CLTAnalysis schema:
+
+{
+  "meta": {
+    "setup": { "clts": 9, "llm_runs": 1, "mode": "hybrid" },
+    "consistency": null
+  },
+  "overall_score": 0,
+  "items": [
+    {
+      "clt_id": "moral_conviction",
+      "label": "Moral Conviction",
+      "present": false,
+      "strength": 0,
+      "confidence": 0.0,
+      "evidence": [ { "quote": "..." } ],
+      "rationale_short": "..."
+    }
+  ]
+}
 
 CRITICAL RULES:
+
 1) Candidate-only mode:
-   - You MUST base your decision ONLY on the candidate sentences provided below.
-   - Do NOT use any information outside the candidates.
-   - If a CLT is not supported by candidates, set present=false, strength=0, confidence low (e.g., 0.10..0.40) and provide empty evidence [].
+- You MUST base your decision ONLY on the candidate sentences provided below.
+- Do NOT use any information outside the candidates.
+- If a CLT is not supported by candidates, set:
+  present=false
+  strength=0
+  evidence=[]
+  confidence between 0.10 and 0.40
 
-2) Evidence:
-   - Evidence quotes MUST be copied exactly from the candidate sentences (verbatim).
-   - No paraphrases.
-   - Max 3 evidence quotes per CLT.
-   - Each quote must be <= 240 chars.
+2) Structure:
+- items MUST contain exactly 9 objects.
+- Each of the nine CLTs MUST appear exactly once (no duplicates, none missing).
+- Use ONLY the following clt_id values:
 
-3) CLTs:
-Analyze ONLY these nine verbal CLTs:
-- moral_conviction
-- collective_sentiment
-- lists_repetition
-- rhetorical_question
-- contrast
-- story_anecdote
-- metaphor_simile
-- ambitious_goals
-- confidence_in_goals
+  moral_conviction
+  collective_sentiment
+  lists_repetition
+  rhetorical_question
+  contrast
+  story_anecdote
+  metaphor_simile
+  ambitious_goals
+  confidence_in_goals
 
-4) Output:
-- Output ONLY JSON. No markdown. No commentary.
+- label MUST match exactly:
+
+  moral_conviction -> "Moral Conviction"
+  collective_sentiment -> "Collective Sentiment"
+  lists_repetition -> "Lists / Repetition"
+  rhetorical_question -> "Rhetorical Question"
+  contrast -> "Contrast"
+  story_anecdote -> "Story / Anecdote"
+  metaphor_simile -> "Metaphor / Simile"
+  ambitious_goals -> "Ambitious Goals"
+  confidence_in_goals -> "Confidence in Goals"
+
+3) Field constraints:
+- present MUST be boolean.
+- strength MUST be integer 0..3.
+- confidence MUST be float 0.0..1.0.
+- evidence MUST be a list of objects with key "quote" only.
+- Each evidence.quote MUST be copied verbatim from the candidates (no paraphrases).
+- Max 3 evidence quotes per CLT.
+- Each quote MUST be <= 240 characters.
+- If present=true, include at least one evidence quote.
+- rationale_short MUST be <= 280 characters.
+
+4) overall_score rules:
+- overall_score MUST be an integer 0..100 (no decimals).
+- Compute overall_score exactly as:
+  round( ( sum over all 9 items of ((strength/3) * confidence) / 9 ) * 100 )
+- Use the numeric values exactly as you output them in the items.
+
+5) meta:
+- meta.setup.clts MUST be 9.
+- meta.setup.llm_runs MUST be 1.
+- meta.setup.mode MUST be "hybrid".
+- meta.consistency MUST be null.
+
+Output ONLY the JSON object.
+No markdown.
+No explanations.
 
 CANDIDATES (only source of truth):
 {candidates}
-
-Now return exactly one JSON object.
