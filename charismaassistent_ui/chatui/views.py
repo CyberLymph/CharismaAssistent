@@ -32,7 +32,7 @@ def analyze_proxy(request):
     payload = json.loads(request.body.decode("utf-8"))
     # expected payload: { "text": "...", "enable_compare": bool, "use_hybrid": bool }
     try:
-        r = requests.post(FASTAPI_URL, json=payload, timeout=120)
+        r = requests.post(FASTAPI_URL, json=payload, timeout=1200)
         return JsonResponse(r.json(), status=r.status_code, safe=False)
     except requests.RequestException as e:
         return JsonResponse({"error": "backend_unavailable", "detail": str(e)}, status=503)
@@ -53,7 +53,7 @@ def analyze_stream_proxy(request):
                 FASTAPI_STREAM_URL,
                 json=payload,
                 stream=True,
-                timeout=300,
+                timeout=1200,
             ) as r:
                 # If FastAPI returns an error, still return NDJSON error to the UI
                 if r.status_code != 200:
