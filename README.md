@@ -134,7 +134,7 @@ http://127.0.0.1:8000
 Open a second terminal, activate the same virtual environment from the project root again, then:
 cd CharismaAssistent-main #if you are not in root  <br>
 cd charismaassistent_ui<br>
-python manage.py migrate<br>
+python manage.py migrate(If you encounter an error related to packages already being installed or not being available on your PYTHONPATH in this point, you can run deactivate to exit the virtual environment and proceed from that point.)<br>
 python manage.py runserver 127.0.0.1:8001
 
 Frontend should now be reachable at:<br>
