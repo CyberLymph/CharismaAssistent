@@ -199,10 +199,33 @@ logger.info("System prompt loaded from: %s", SYSTEM_PATH_USED)
 logger.info("User prompt loaded from: %s", USER_PATH_USED if USER_PATH_USED else "(fallback string)")
 logger.info("Hybrid prompt loaded from: %s", HYBRID_PATH_USED if HYBRID_PATH_USED else "(fallback string)")
 
+
+
+def strip_code_fences(raw: str) -> str:
+    s = (raw or "").strip()
+
+    # Prefer fenced json block if present
+    m = re.search(r"```(?:json)?\s*(\{.*\})\s*```", s, flags=re.DOTALL | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+
+    # Fallback: remove simple opening/closing fences
+    if s.startswith("```"):
+        first_nl = s.find("\n")
+        if first_nl != -1:
+            s = s[first_nl + 1 :].strip()
+        if s.endswith("```"):
+            s = s[:-3].strip()
+
+    return s
+
+
+
 # -----------------------------
 # JSON extraction helper
 # -----------------------------
 def extract_json(raw: str) -> Optional[str]:
+    raw = strip_code_fences(raw)          
     raw = (raw or "").strip()
     if not raw:
         return None
@@ -253,6 +276,58 @@ def extract_json(raw: str) -> Optional[str]:
                     return extract_json(raw[nxt:])
 
     return None
+
+
+def escape_newlines_in_json_strings(s: str) -> str:
+    """
+    Makes JSON parseable if the model put raw newline characters inside JSON strings.
+    We only touch characters while we are inside a quoted JSON string.
+    """
+    if not s:
+        return s
+
+    out = []
+    in_str = False
+    esc = False
+
+    for ch in s:
+        if in_str:
+            if esc:
+                out.append(ch)
+                esc = False
+                continue
+
+            if ch == "\\":
+                out.append(ch)
+                esc = True
+                continue
+
+            if ch == '"':
+                out.append(ch)
+                in_str = False
+                continue
+
+            # IMPORTANT: raw newlines inside strings are invalid JSON
+            if ch == "\n":
+                out.append("\\n")
+                continue
+            if ch == "\r":
+                out.append("\\r")
+                continue
+
+            out.append(ch)
+        else:
+            if ch == '"':
+                out.append(ch)
+                in_str = True
+            else:
+                out.append(ch)
+
+    return "".join(out)
+
+
+
+
 
 # -----------------------------
 # Deterministic mock
@@ -307,7 +382,6 @@ def mock_analyze(text: str, model: str, llm_runs: int = 1, mode_tag: str = "Mock
 
 # -----------------------------
 # Candidate extraction (English only)
-# -----------------------------
 
 # Rhetorical question (sentence ending or embedded question mark)
 _pat_rhet_q = re.compile(r"\?\s*$|\?\s+[A-Z]", re.I)
@@ -662,18 +736,41 @@ def analyze_with_wrapper(wrapper, text: str, model_name: str, use_hybrid: bool) 
     else:
         user_prompt = render_user_prompt(USER_PROMPT_TEMPLATE, text)
 
-    raw = wrapper.analyze(SYSTEM_PROMPT, user_prompt, temperature=0.0)
-    if not isinstance(raw, str):
-        raw = str(raw)
+    # --- choose output budget ---
+    # Hybrid needs more room because candidates + 9 items + evidence/rationale can get long
+    max_out = 8192 if (model_name == "gemini" and use_hybrid) else (4096 if model_name == "gemini" else 2048)
 
-    json_text = extract_json(raw)
+    # Call wrapper with max_output_tokens if supported
+    try:
+        raw = wrapper.analyze(SYSTEM_PROMPT, user_prompt, temperature=0.0, max_output_tokens=max_out)
+    except TypeError:
+        raw = wrapper.analyze(SYSTEM_PROMPT, user_prompt, temperature=0.0)
+
+    raw = raw if isinstance(raw, str) else str(raw)
+
+    raw_clean = strip_code_fences(raw)
+    json_text = extract_json(raw_clean)
+
+    if not json_text and model_name == "gemini":
+        # one retry with even more budget (only gemini)
+        try:
+            raw2 = wrapper.analyze(SYSTEM_PROMPT, user_prompt, temperature=0.0, max_output_tokens=12288)
+            raw2 = raw2 if isinstance(raw2, str) else str(raw2)
+            raw2_clean = strip_code_fences(raw2)
+            json_text = extract_json(raw2_clean)
+            raw_clean = raw2_clean if json_text else raw_clean
+        except TypeError:
+            pass
+
     if not json_text:
-        logger.error("No JSON extracted from %s output. Raw head: %s", model_name, raw[:250])
+        logger.error(
+            "No JSON extracted from %s. len(raw)=%s len(clean)=%s head=%s tail=%s",
+            model_name, len(raw), len(raw_clean), raw_clean[:200], raw_clean[-200:]
+        )
         raise ValueError(f"No JSON extracted from {model_name} output")
 
     parsed = json.loads(json_text)
     parsed = normalize_llm_output(parsed, model_name)
-
     analysis = _validate_clt_analysis(parsed)
 
     # Ensure meta tag

@@ -15,8 +15,7 @@ FASTAPI_URL = f"{FASTAPI_BASE}/analyze"
 FASTAPI_STREAM_URL = f"{FASTAPI_BASE}/analyze_stream"
 
 
-def chat_page(request):
-    return render(request, "chatui/chat.html")
+
 
 
 def wizard_step1(request):

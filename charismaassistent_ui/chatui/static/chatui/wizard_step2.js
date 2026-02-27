@@ -358,10 +358,7 @@
         <div class="muted" style="margin-top:8px;">${escapeHtml(item.rationale_short || "—")}</div>
       </details>
 
-      <details class="card" style="padding:10px;">
-        <summary style="cursor:pointer; font-weight:700;">Debug (optional)</summary>
-        <pre class="result__text" style="margin-top:8px; max-height:240px; overflow:auto;">${escapeHtml(JSON.stringify(item, null, 2))}</pre>
-      </details>
+      
     `;
   }
 
